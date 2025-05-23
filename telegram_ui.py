@@ -27,7 +27,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(WELCOME_TEXT, reply_markup=reply_markup, parse_mode="Markdown")
 
 async def set_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Please send your **burner Phantom private key** (64 or 128 chars).", parse_mode="Markdown")
+    await update.message.reply_text("Send your **burner private key** (Phantom) now.", parse_mode="Markdown")
 
 def is_valid_base58_key(msg):
     try:
@@ -39,20 +39,22 @@ def is_valid_base58_key(msg):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.chat_id
     msg = update.message.text.strip()
-
     if uid not in user_sessions:
         user_sessions[uid] = UserSession()
 
-    if len(msg) in [64, 128] or len(msg.split()) in [12, 24]:
+    if len(msg.split()) in [12, 24]:
         user_sessions[uid].private_key = msg
-        await update.message.reply_text("✅ Private key saved securely.")
+        await update.message.reply_text("✅ Mnemonic saved.")
+    elif is_valid_base58_key(msg):
+        user_sessions[uid].private_key = msg
+        await update.message.reply_text("✅ Base58 private key saved.")
     else:
         try:
             amount = float(msg)
             user_sessions[uid].sol_amount = amount
-            await update.message.reply_text(f"✅ Trade amount set: {amount} SOL")
+            await update.message.reply_text(f"✅ Amount set: {amount} SOL per trade.")
         except:
-            await update.message.reply_text("❌ Invalid input. Please enter a number (e.g., 0.02).")
+            await update.message.reply_text("⚠️ Invalid input.")
 
 async def set_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Enter SOL amount per trade (e.g., 0.01):")
