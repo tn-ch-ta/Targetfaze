@@ -13,7 +13,7 @@ reply_markup = ReplyKeyboardMarkup(custom_keyboard, resize_keyboard=True)
 
 user_sessions = {}
 WELCOME_TEXT = """
-Welcome to *Solsnipery 2.0* — your Pump.fun sniper bot!
+Welcome to *Targetfaze* — your Pump.fun sniper bot!
 
 • /setwallet - Set your Phantom private key (burner only)
 • /setamount - Set SOL amount per trade
