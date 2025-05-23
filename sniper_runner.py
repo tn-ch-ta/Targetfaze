@@ -1,4 +1,5 @@
 # sniper_runner.py
+
 import threading, time, requests
 from utils.token_checks import (
     is_token_rug, check_insider_distribution,
@@ -13,46 +14,65 @@ def fetch_new_pumpfun_tokens():
     url = "https://frontend-api-v3.pump.fun/coins/latest"
     try:
         resp = requests.get(url).json()
-        return resp.get("tokens", [])
-    except:
+        tokens = resp.get("tokens", [])
+        print(f"[DEBUG] Fetched {len(tokens)} tokens from Pump.fun")
+        return tokens
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch tokens: {e}")
         return []
 
 def start_sniping_for_user(uid, session):
     session.sniping = True
+    print(f"[{uid}] ▶️ Started sniping session")
 
     def run():
         while session.sniping:
             new_tokens = fetch_new_pumpfun_tokens()
             for token in new_tokens:
                 mint = token.get("mint")
+                name = token.get("name", "Unnamed")
+
                 if mint in seen_tokens:
+                    print(f"[{uid}] 🔁 Skipping already seen token: {mint}")
                     continue
                 seen_tokens.add(mint)
 
-                # === Safety checks ===
-                if is_token_rug(mint): continue
-                if not check_insider_distribution(mint): continue
-                if not check_freeze_authority(mint): continue
-                if not check_liquidity(mint, min_sol=0.5): continue
-                if not check_holder_diversity(mint): continue
+                # === Safety checks with logging ===
+                if is_token_rug(mint):
+                    print(f"[{uid}] ❌ Skipped {name} ({mint}) - Honeypot/Rug risk")
+                    continue
+                if not check_insider_distribution(mint):
+                    print(f"[{uid}] ❌ Skipped {name} ({mint}) - Insider distribution")
+                    continue
+                if not check_freeze_authority(mint):
+                    print(f"[{uid}] ❌ Skipped {name} ({mint}) - Freeze authority")
+                    continue
+                if not check_liquidity(mint, min_sol=0.5):
+                    print(f"[{uid}] ❌ Skipped {name} ({mint}) - Low liquidity")
+                    continue
+                if not check_holder_diversity(mint):
+                    print(f"[{uid}] ❌ Skipped {name} ({mint}) - Poor holder diversity")
+                    continue
 
-                print(f"[{uid}] ✅ Passed checks: {token.get('name')} ({mint})")
+                print(f"[{uid}] ✅ PASSED: {name} ({mint}) - Sniping now...")
 
                 # === Real Buy ===
                 try:
                     buy_token_real(session.private_key, mint, session.sol_amount)
+                    print(f"[{uid}] ✅ Bought {mint} with {session.sol_amount} SOL")
                 except Exception as e:
-                    print(f"[{uid}] ❌ Buy failed: {e}")
+                    print(f"[{uid}] ❌ Buy failed for {mint}: {e}")
                     continue
 
-                # === Auto-sell after 60s ===
+                # === Auto-sell after 60 seconds ===
                 def auto_sell():
+                    print(f"[{uid}] ⏳ Waiting 60s to auto-sell {mint}...")
                     time.sleep(60)
                     try:
                         sell_token_real(session.private_key, mint)
-                        print(f"[{uid}] 🔁 Sold {mint}")
+                        print(f"[{uid}] 🔁 Auto-sold {mint}")
                     except Exception as e:
-                        print(f"[{uid}] ❌ Auto-sell failed: {e}")
+                        print(f"[{uid}] ❌ Auto-sell failed for {mint}: {e}")
 
                 threading.Thread(target=auto_sell, daemon=True).start()
 
@@ -65,5 +85,5 @@ def start_sniping_for_user(uid, session):
 def stop_sniping_for_user(uid):
     thread = active_threads.get(uid)
     if thread:
-        # Threads are daemonized, just stop loop
+        print(f"[{uid}] 🛑 Stopping sniping session")
         del active_threads[uid]
