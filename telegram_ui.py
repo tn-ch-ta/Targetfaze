@@ -4,6 +4,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     ContextTypes, filters
 )
+from telegram.error import TelegramError
 from sniper_runner import start_sniping_for_user, stop_sniping_for_user
 from session_manager import UserSession
 from config import CONFIG
@@ -87,11 +88,17 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def start_bot():
     app = ApplicationBuilder().token(CONFIG["telegram_token"]).build()
+
+    async def error_handler(update, context):
+        print(f"Error while handling update: {context.error}")
+
+    app.add_error_handler(error_handler)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("setwallet", set_wallet))
     app.add_handler(CommandHandler("setamount", set_amount))
-    app.add_handler(CommandHandler("startsniping", start_sniping))
-    app.add_handler(CommandHandler("stop", stop))
+    app.add_handler(CommandHandler("snipeon", snipe_on))
+    app.add_handler(CommandHandler("snipeoff", snipe_off))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
     app.run_polling()
