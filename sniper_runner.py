@@ -2,13 +2,7 @@
 
 import asyncio
 import aiohttp
-from utils.token_checks import (
-    is_token_rug,
-    check_insider_distribution,
-    check_liquidity,
-    check_freeze_authority,
-    check_holder_diversity
-)
+from utils.token_checks import passes_all_checks
 from utils.real_swap import buy_token_real, sell_token_real
 
 active_tasks: dict[int, asyncio.Task] = {}
@@ -44,23 +38,12 @@ async def _snipe_loop(uid: int, session):
             seen_tokens.add(mint)
 
             # === Safety checks ===
-            if await is_token_rug(mint):
-                print(f"[{uid}] ❌ Skipped {name} ({mint}) – Rug/honeypot")
-                continue
-            if not await check_insider_distribution(mint):
-                print(f"[{uid}] ❌ Skipped {name} ({mint}) – Insider heavy")
-                continue
-            if await check_freeze_authority(mint):
-                print(f"[{uid}] ❌ Skipped {name} ({mint}) – Freeze authority")
-                continue
-            if not await check_liquidity(mint, min_sol=0.5):
-                print(f"[{uid}] ❌ Skipped {name} ({mint}) – Low liquidity")
-                continue
-            if not await check_holder_diversity(mint):
-                print(f"[{uid}] ❌ Skipped {name} ({mint}) – Poor diversity")
-                continue
 
-            print(f"[{uid}] ✅ PASSED: {name} ({mint}) – Executing buy")
+            if await passes_all_checks(mint):
+                print(f"[{uid}] ✅ PASSED: {name} ({mint}) - Sniping now...")
+                   # buy_token_real(...)
+            else:
+                print(f"[{uid}] ❌ Skipped {name} ({mint}) - Failed safety checks")
 
             # === Real Buy ===
             try:
