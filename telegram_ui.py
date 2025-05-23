@@ -96,8 +96,8 @@ def start_bot():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("setwallet", set_wallet))
     app.add_handler(CommandHandler("setamount", set_amount))
-    app.add_handler(CommandHandler("snipeon", snipe_on))
-    app.add_handler(CommandHandler("snipeoff", snipe_off))
+    app.add_handler(CommandHandler("startsniping", start_sniping))
+    app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
