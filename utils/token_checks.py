@@ -1,4 +1,15 @@
 # utils/token_checks.py
+# ──────────────────────────────────────────────────────────────────────────────
+# Monkey-patch httpx.AsyncClient to swallow `proxy` kwarg so solana-py works
+# ──────────────────────────────────────────────────────────────────────────────
+import httpx
+_original_async_init = httpx.AsyncClient.__init__
+def _patched_async_init(self, *args, proxy=None, **kwargs):
+    # Ignore proxy, pass everything else through
+    return _original_async_init(self, *args, **kwargs)
+httpx.AsyncClient.__init__ = _patched_async_init
+# ─────────────────────────────────────────────────
+
 
 import aiohttp
 import asyncio
