@@ -1,0 +1,87 @@
+# telegram_ui.py
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    ContextTypes, filters
+)
+from sniper_runner import start_sniping_for_user, stop_sniping_for_user
+from session_manager import UserSession
+from config import CONFIG
+
+custom_keyboard = [["/setwallet", "/setamount"], ["/startsniping", "/stop"], ["/status"]]
+reply_markup = ReplyKeyboardMarkup(custom_keyboard, resize_keyboard=True)
+
+user_sessions = {}
+WELCOME_TEXT = """
+Welcome to *Solsnipery 2.0* — your Pump.fun sniper bot!
+
+• /setwallet - Set your Phantom private key (burner only)
+• /setamount - Set SOL amount per trade
+• /startsniping - Begin sniping new Pump.fun tokens
+• /stop - Halt all activity
+• /status - View your current config
+"""
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(WELCOME_TEXT, reply_markup=reply_markup, parse_mode="Markdown")
+
+async def set_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Please send your **burner Phantom private key** (64 or 128 chars).", parse_mode="Markdown")
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.chat_id
+    msg = update.message.text.strip()
+
+    if uid not in user_sessions:
+        user_sessions[uid] = UserSession()
+
+    if len(msg) in [64, 128] or len(msg.split()) in [12, 24]:
+        user_sessions[uid].private_key = msg
+        await update.message.reply_text("✅ Private key saved securely.")
+    else:
+        try:
+            amount = float(msg)
+            user_sessions[uid].sol_amount = amount
+            await update.message.reply_text(f"✅ Trade amount set: {amount} SOL")
+        except:
+            await update.message.reply_text("❌ Invalid input. Please enter a number (e.g., 0.02).")
+
+async def set_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Enter SOL amount per trade (e.g., 0.01):")
+
+async def start_sniping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.chat_id
+    session = user_sessions[uid]
+    if not session.private_key:
+        await update.message.reply_text("⚠️ Please set your wallet first using /setwallet.")
+        return
+    start_sniping_for_user(uid, session)
+    await update.message.reply_text("🚀 Now sniping brand new Pump.fun tokens...")
+
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.chat_id
+    stop_sniping_for_user(uid)
+    if uid in user_sessions:
+        user_sessions[uid].sniping = False
+    await update.message.reply_text("🛑 Sniping stopped.")
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    session = user_sessions.get(update.message.chat_id)
+    if session:
+        wallet = session.masked_wallet()
+        await update.message.reply_text(
+            f"🔐 Wallet: {wallet}\n💰 Amount: {session.sol_amount} SOL\n📡 Status: {'Sniping' if session.sniping else 'Idle'}"
+        )
+    else:
+        await update.message.reply_text("No session info found. Use /setwallet and /setamount to configure.")
+
+def start_bot():
+    app = ApplicationBuilder().token(CONFIG["telegram_token"]).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("setwallet", set_wallet))
+    app.add_handler(CommandHandler("setamount", set_amount))
+    app.add_handler(CommandHandler("startsniping", start_sniping))
+    app.add_handler(CommandHandler("stop", stop))
+    app.add_handler(CommandHandler("status", status))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.run_polling()
