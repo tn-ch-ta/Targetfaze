@@ -10,7 +10,7 @@ active_threads = {}
 seen_tokens = set()
 
 def fetch_new_pumpfun_tokens():
-    url = "https://api.pump.fun/tokens?sort=new"
+    url = "https://frontend-api-v3.pump.fun/coins/latest"
     try:
         resp = requests.get(url).json()
         return resp.get("tokens", [])
