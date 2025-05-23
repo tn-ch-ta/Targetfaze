@@ -14,7 +14,7 @@ SOL_MINT = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
 JUPITER_SWAP_API = "https://quote-api.jup.ag/v6/swap"
 
-client = Client(RPC_URL)
+client = Client("https://api.mainnet-beta.solana.com")
 
 def get_keypair_from_base58(private_key: str) -> Keypair:
     decoded = base58.b58decode(private_key)
