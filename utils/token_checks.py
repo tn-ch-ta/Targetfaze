@@ -2,7 +2,7 @@
 
 import requests
 
-PUMP_TOKEN_API = "https://api.pump.fun/token/"
+PUMP_TOKEN_API = "https://frontend-api-v3.pump.fun/coins/latest"
 
 def fetch_token_data(mint: str) -> dict:
     try:
