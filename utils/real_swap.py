@@ -59,13 +59,17 @@ async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
         "route": route,
         "userPublicKey": str(user_pubkey),
         "wrapUnwrapSOL": True,
-        "feeAccount": None,
-        "computeUnitPriceMicroLamports": 1
+        "computeUnitPriceMicroLamports": 1,
     }
+
+    # Omit feeAccount if not used
+    # payload["feeAccount"] = "YOUR_FEE_ACCOUNT_HERE"  # if needed
+
     print(f"[DEBUG] Swap payload: {{'userPublicKey': {user_pubkey}, 'inAmount': {route.get('inAmount')}}}")
     async with aiohttp.ClientSession() as session:
         async with session.post(JUPITER_SWAP_API, json=payload) as resp:
             json_data = await resp.json()
+
     print(f"[DEBUG] Swap response: {json_data}")
     tx_b58 = json_data.get("swapTransaction")
     if not tx_b58:
