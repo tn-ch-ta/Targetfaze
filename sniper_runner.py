@@ -13,10 +13,15 @@ seen_tokens = set()
 def fetch_new_pumpfun_tokens():
     url = "https://frontend-api-v3.pump.fun/coins/latest"
     try:
-        resp = requests.get(url).json()
-        tokens = resp.get("tokens", [])
-        print(f"[DEBUG] Fetched {len(tokens)} tokens from Pump.fun")
-        return tokens
+        resp = requests.get(url)
+        data = resp.json()
+
+        # Handle single token response
+        if isinstance(data, dict) and "mint" in data:
+            print(f"[DEBUG] Fetched 1 token from Pump.fun")
+            return [data]  # wrap in list for consistency
+        print("[DEBUG] Fetched 0 tokens from Pump.fun (unexpected format)")
+        return []
     except Exception as e:
         print(f"[ERROR] Failed to fetch tokens: {e}")
         return []
