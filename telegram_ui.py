@@ -7,6 +7,7 @@ from telegram.ext import (
 from sniper_runner import start_sniping_for_user, stop_sniping_for_user
 from session_manager import UserSession
 from config import CONFIG
+import base58
 
 custom_keyboard = [["/setwallet", "/setamount"], ["/startsniping", "/stop"], ["/status"]]
 reply_markup = ReplyKeyboardMarkup(custom_keyboard, resize_keyboard=True)
@@ -27,6 +28,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def set_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Please send your **burner Phantom private key** (64 or 128 chars).", parse_mode="Markdown")
+
+def is_valid_base58_key(msg):
+    try:
+        decoded = base58.b58decode(msg)
+        return len(decoded) in [32, 64]
+    except Exception:
+        return False
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.chat_id
