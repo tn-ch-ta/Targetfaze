@@ -62,20 +62,20 @@ async def set_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start_sniping(update, context):
     uid = update.effective_chat.id
-    session = session_store.get(uid)
+    session = user_sessions.get(uid)
     if not session.private_key:
         await update.message.reply_text("⚠️Please set your wallet first with /setwallet")
         return
     await start_sniping_for_user(uid, session)
-    session_store.update(uid, session)
+    user_sessions.update(uid, session)
     await update.message.reply_text("🚀Now sniping Pump.fun new tokens.")
 
 async def stop(update, context):
     uid = update.effective_chat.id
     await stop_sniping_for_user(uid)
-    session = session_store.get(uid)
+    session = user_sessions.get(uid)
     session.sniping = False
-    session_store.update(uid, session)
+    user_sessions.update(uid, session)
     await update.message.reply_text("🛑 Sniping stopped.")
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
