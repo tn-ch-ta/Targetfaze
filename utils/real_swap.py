@@ -6,6 +6,7 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 from solana.rpc.async_api import AsyncClient
+from solana.rpc.providers.async_http import AsyncHTTPProvider
 from solana.rpc.commitment import Confirmed
 from solana.rpc.types import TxOpts
 
@@ -15,6 +16,7 @@ JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
 JUPITER_SWAP_API = "https://quote-api.jup.ag/v6/swap"
 
 client = AsyncClient(RPC_URL)
+client._provider = AsyncHTTPProvider(RPC_URL, timeout=30)  # <-- avoid proxy param
 
 def get_keypair_from_base58(private_key: str) -> Keypair:
     decoded = base58.b58decode(private_key)
