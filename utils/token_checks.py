@@ -25,7 +25,8 @@ async def fetch_token_data(mint: str) -> dict:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=5) as resp:
-                resp.raise_for_status()
+                if resp.status !=200:
+                    raise Exception(f"HTTP {resp.status}")
                 return await resp.json()
     except Exception as e:
         print(f"[ERROR] fetch_token_data({mint}): {e}")
