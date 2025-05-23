@@ -60,20 +60,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Enter SOL amount per trade (e.g., 0.01):")
 
-async def start_sniping(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.message.chat_id
-    session = user_sessions[uid]
+async def start_sniping(update, context):
+    uid = update.effective_chat.id
+    session = session_store.get(uid)
     if not session.private_key:
-        await update.message.reply_text("⚠️ Please set your wallet first using /setwallet.")
+        await update.message.reply_text("⚠️Please set your wallet first with /setwallet")
         return
-    start_sniping_for_user(uid, session)
-    await update.message.reply_text("🚀 Now sniping brand new Pump.fun tokens...")
+    await start_sniping_for_user(uid, session)
+    session_store.update(uid, session)
+    await update.message.reply_text("🚀Now sniping Pump.fun new tokens.")
 
-async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.message.chat_id
-    stop_sniping_for_user(uid)
-    if uid in user_sessions:
-        user_sessions[uid].sniping = False
+async def stop(update, context):
+    uid = update.effective_chat.id
+    await stop_sniping_for_user(uid)
+    session = session_store.get(uid)
+    session.sniping = False
+    session_store.update(uid, session)
     await update.message.reply_text("🛑 Sniping stopped.")
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
