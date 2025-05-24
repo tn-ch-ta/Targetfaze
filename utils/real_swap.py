@@ -21,7 +21,9 @@ from solana.rpc.commitment import Confirmed
 from solana.rpc.types import TxOpts
 import json
 
-# Recursively remove booleans from route
+# ──────────────────────────────────────────────────────────────────────────────
+# Helpers to strip ANY boolean values from a nested dict/list structure
+# ──────────────────────────────────────────────────────────────────────────────
 def clean_route(obj):
     if isinstance(obj, dict):
         return {
@@ -31,10 +33,8 @@ def clean_route(obj):
         }
     elif isinstance(obj, list):
         return [clean_route(v) for v in obj]
-    elif isinstance(obj, bool):
-        return None  # Ensures we never return bool to outer layers
     else:
-        return obj
+        return obj  # leave ints, floats, strings, etc.
 
 def detect_bool_fields(obj, path="root"):
     if isinstance(obj, dict):
@@ -46,11 +46,13 @@ def detect_bool_fields(obj, path="root"):
         for i, v in enumerate(obj):
             detect_bool_fields(v, f"{path}[{i}]")
 
+# ──────────────────────────────────────────────────────────────────────────────
 RPC_URL = "https://api.mainnet-beta.solana.com"
 SOL_MINT = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
 JUPITER_SWAP_API  = "https://quote-api.jup.ag/v6/swap"
 
+# Initialize shared AsyncClient
 client = AsyncClient(RPC_URL)
 client._provider = AsyncHTTPProvider(RPC_URL, timeout=30)
 
@@ -70,26 +72,31 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
     async with aiohttp.ClientSession() as session:
         async with session.get(JUPITER_QUOTE_API, params=params) as resp:
             json_data = await resp.json()
+
     print(f"[DEBUG] Quote response: {json_data}")
-    routes = json_data.get("data")
+    routes = json_data.get("data") or []
     if not routes:
         raise Exception(f"No route returned from Jupiter: {json_data}")
+
+    # Take the first route, then clean it
     route = routes[0]
-    print(f"[DEBUG] Selected routePlan ({len(route.get('routePlan', []))} steps)")
-    return route
+    detect_bool_fields(route)           # log any bools in original
+    route_clean = clean_route(route)    # remove all bools
+    detect_bool_fields(route_clean)     # verify none remain
+
+    print(f"[DEBUG] Selected routePlan ({len(route_clean.get('routePlan', []))} steps) after cleaning")
+    return route_clean
 
 async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
-    route_clean = clean_route(route)
-    detect_bool_fields(route_clean)
-
+    # route is already cleaned by get_swap_route
     payload = {
-        "route": route_clean,
+        "route": route,
         "userPublicKey": str(user_pubkey),
-        "wrapUnwrapSOL": 1,  # Avoid bool value
+        "wrapUnwrapSOL": 1,                   # never a bool
         "computeUnitPriceMicroLamports": 1,
     }
 
-    print("[DEBUG] Final payload to Jupiter (booleans should be removed):")
+    print("[DEBUG] Final payload to Jupiter (no bools):")
     print(json.dumps(payload, indent=2))
 
     async with aiohttp.ClientSession() as session:
@@ -107,6 +114,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     tx.sign([keypair])
     signed = tx.serialize()
     print(f"[DEBUG] Signed transaction size: {len(signed)} bytes")
+
     sig_resp = await client.send_raw_transaction(
         signed,
         opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed)
@@ -121,9 +129,11 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     print(f"[BUY] Attempting to buy {mint} for {sol_amount} SOL")
     kp = get_keypair_from_base58(private_key)
     lamports = int(sol_amount * 1e9)
+
     route = await get_swap_route(SOL_MINT, mint, lamports)
     tx_bytes = await get_swap_transaction(route, kp.pubkey())
     sig = await send_transaction(tx_bytes, kp)
+
     print(f"[BUY] Completed buy of {mint}, signature: {sig}")
 
 async def sell_token_real(private_key: str, mint: str):
@@ -134,12 +144,15 @@ async def sell_token_real(private_key: str, mint: str):
     ata = get_associated_token_address(kp.pubkey(), Pubkey.from_string(mint))
     balance = await get_token_balance(ata)
     print(f"[SELL] Token account {ata}, balance = {balance}")
+
     if balance == 0:
         print("[SELL] Nothing to sell.")
         return
+
     route = await get_swap_route(mint, SOL_MINT, balance)
     tx_bytes = await get_swap_transaction(route, kp.pubkey())
     sig = await send_transaction(tx_bytes, kp)
+
     print(f"[SELL] Completed sell of {mint}, signature: {sig}")
 
 async def get_token_balance(token_account: Pubkey) -> int:
