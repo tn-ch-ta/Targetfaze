@@ -5,7 +5,6 @@ import httpx
 _original_async_init = httpx.AsyncClient.__init__
 
 def _patched_async_init(self, *args, proxy=None, **kwargs):
-    # Ignore proxy, pass everything else through
     return _original_async_init(self, *args, **kwargs)
 
 httpx.AsyncClient.__init__ = _patched_async_init
@@ -22,13 +21,7 @@ from solana.rpc.commitment import Confirmed
 from solana.rpc.types import TxOpts
 import json
 
-# utils/real_swap.py (add near top, after imports)
-
 def clean_route(obj):
-    """
-    Recursively remove any boolean values from dicts/lists inside the route.
-    Jupiter API expects only str, int, or float.
-    """
     if isinstance(obj, dict):
         return {
             k: clean_route(v)
@@ -40,12 +33,21 @@ def clean_route(obj):
     else:
         return obj
 
+def detect_bool_fields(obj, path="root"):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, bool):
+                print(f"[DEBUG] ⚠️ Boolean field detected: {path}.{k} = {v}")
+            detect_bool_fields(v, f"{path}.{k}")
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            detect_bool_fields(v, f"{path}[{i}]")
+
 RPC_URL = "https://api.mainnet-beta.solana.com"
 SOL_MINT = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
 JUPITER_SWAP_API  = "https://quote-api.jup.ag/v6/swap"
 
-# Initialize once
 client = AsyncClient(RPC_URL)
 client._provider = AsyncHTTPProvider(RPC_URL, timeout=30)
 
@@ -74,27 +76,14 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
     return route
 
 async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
-    # First, clean out any boolean fields from route
     route_clean = clean_route(route)
-
-# Debug log what keys still exist that are bools
-def detect_bool_fields(obj, path="root"):
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if isinstance(v, bool):
-                print(f"[DEBUG] ⚠️ Boolean field detected: {path}.{k} = {v}")
-            detect_bool_fields(v, f"{path}.{k}")
-    elif isinstance(obj, list):
-        for i, v in enumerate(obj):
-            detect_bool_fields(v, f"{path}[{i}]")
-
-detect_bool_fields(route_clean)
+    detect_bool_fields(route_clean)
 
     payload = {
-    "route": route_clean,
-    "userPublicKey": str(user_pubkey),
-    "wrapUnwrapSOL": True,
-    "computeUnitPriceMicroLamports": 1,
+        "route": route_clean,
+        "userPublicKey": str(user_pubkey),
+        "wrapUnwrapSOL": True,
+        "computeUnitPriceMicroLamports": 1,
     }
 
     print(f"[DEBUG] Swap payload prepared; user={user_pubkey}, inAmount={route_clean.get('inAmount')}")
@@ -109,12 +98,10 @@ detect_bool_fields(route_clean)
     return base58.b58decode(tx_b58)
 
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
-    # Deserialize and sign
     tx = VersionedTransaction.deserialize(raw_tx_bytes)
     tx.sign([keypair])
     signed = tx.serialize()
     print(f"[DEBUG] Signed transaction size: {len(signed)} bytes")
-    # Send
     sig_resp = await client.send_raw_transaction(
         signed,
         opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed)
