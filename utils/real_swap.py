@@ -66,25 +66,26 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
     return kp
 
 async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 1.0) -> dict:
-    # Note: pass only string values where needed, not bools
     params = {
         "inputMint":        input_mint,
         "outputMint":       output_mint,
         "amount":           amount,
-        "slippage":         slippage,
-        "onlyDirectRoutes": "false",  # string "false", not bool False
+        "slippageBps":      int(slippage * 100),  # 1.0 → 100 bps
+        "onlyDirectRoutes": "false",
+        "restrictIntermediateTokens": "true"
     }
 
     async with aiohttp.ClientSession() as session:
         async with session.get(JUPITER_QUOTE_API, params=params) as resp:
             json_data = await resp.json()
 
-    print(f"[DEBUG] Quote response: {json_data}")
-    routes = json_data.get("data") or []
-    if not routes:
-        raise Exception(f"No route returned from Jupiter: {json_data}")
+    print(f"[DEBUG] Quote response: {json.dumps(json_data, indent=2)}")
 
-    route = routes[0]
+    # Jupiter now returns a single route directly
+    if not isinstance(json_data, dict) or "routePlan" not in json_data:
+        raise Exception(f"No valid route returned from Jupiter: {json_data}")
+
+    route = json_data
     detect_bool_fields(route)
     route_clean = clean_route(route)
     detect_bool_fields(route_clean)
