@@ -53,7 +53,7 @@ def detect_bool_fields(obj, path="root"):
 # ──────────────────────────────────────────────────────────────────────────────
 RPC_URL           = "https://api.mainnet-beta.solana.com"
 SOL_MINT          = "So11111111111111111111111111111111111111112"
-JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
+JUPITER_QUOTE_API = "https://lite-api.jup.ag/swap/v1/quote"
 JUPITER_SWAP_API  = "https://quote-api.jup.ag/v6/swap"
 
 # shared AsyncClient
