@@ -22,19 +22,23 @@ from solana.rpc.types import TxOpts
 import json
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Helpers to strip ANY boolean values from a nested dict/list structure
+# Updated cleaner: convert bool to int, drop None values, preserve everything else
 # ──────────────────────────────────────────────────────────────────────────────
 def clean_route(obj):
     if isinstance(obj, dict):
-        return {
-            k: clean_route(v)
-            for k, v in obj.items()
-            if not isinstance(v, bool)
-        }
+        cleaned = {}
+        for k, v in obj.items():
+            if v is None:
+                continue  # remove None keys entirely
+            elif isinstance(v, bool):
+                cleaned[k] = int(v)  # convert bool True/False to 1/0
+            else:
+                cleaned[k] = clean_route(v)
+        return cleaned
     elif isinstance(obj, list):
         return [clean_route(v) for v in obj]
     else:
-        return obj  # keep ints, floats, strings, etc.
+        return obj  # ints, floats, strings, etc.
 
 def detect_bool_fields(obj, path="root"):
     if isinstance(obj, dict):
@@ -62,13 +66,13 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
     return kp
 
 async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 1.0) -> dict:
-    # 🔧 boolean must be string to satisfy yarl/aiohttp
+    # Note: pass only string values where needed, not bools
     params = {
-        "inputMint":          input_mint,
-        "outputMint":         output_mint,
-        "amount":             amount,
-        "slippage":           slippage,
-        "onlyDirectRoutes":   "false",  # not a bool
+        "inputMint":        input_mint,
+        "outputMint":       output_mint,
+        "amount":           amount,
+        "slippage":         slippage,
+        "onlyDirectRoutes": "false",  # string "false", not bool False
     }
 
     async with aiohttp.ClientSession() as session:
@@ -80,26 +84,24 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
     if not routes:
         raise Exception(f"No route returned from Jupiter: {json_data}")
 
-    # select first route, then clean it
     route = routes[0]
-    detect_bool_fields(route)           # log any leftover bools
-    route_clean = clean_route(route)    # strip them
-    detect_bool_fields(route_clean)     # should show none
+    detect_bool_fields(route)
+    route_clean = clean_route(route)
+    detect_bool_fields(route_clean)
 
     steps = len(route_clean.get("routePlan", []))
     print(f"[DEBUG] Selected routePlan ({steps} steps) after cleaning")
     return route_clean
 
 async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
-    # route is already cleaned by get_swap_route()
     payload = {
         "route":                         route,
         "userPublicKey":                 str(user_pubkey),
-        "wrapUnwrapSOL":                 1,  # integer, not bool
+        "wrapUnwrapSOL":                 1,  # int, not bool
         "computeUnitPriceMicroLamports": 1,
     }
 
-    print("[DEBUG] Final payload to Jupiter (no bools):")
+    print("[DEBUG] Final payload to Jupiter (no bools, no None):")
     print(json.dumps(payload, indent=2))
 
     async with aiohttp.ClientSession() as session:
