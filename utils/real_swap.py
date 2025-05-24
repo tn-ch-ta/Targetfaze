@@ -88,14 +88,14 @@ def detect_bool_fields(obj, path="root"):
         for i, v in enumerate(obj):
             detect_bool_fields(v, f"{path}[{i}]")
 
-    detect_bool_fields(route_clean)
+detect_bool_fields(route_clean)
 
-    payload = {
-        "route": route_clean,
-        "userPublicKey": str(user_pubkey),
-        "wrapUnwrapSOL": True,
-        "computeUnitPriceMicroLamports": 1,
-    }
+payload = {
+    "route": route_clean,
+    "userPublicKey": str(user_pubkey),
+    "wrapUnwrapSOL": True,
+    "computeUnitPriceMicroLamports": 1,
+}
 
     print(f"[DEBUG] Swap payload prepared; user={user_pubkey}, inAmount={route_clean.get('inAmount')}")
     async with aiohttp.ClientSession() as session:
