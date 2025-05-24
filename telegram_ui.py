@@ -71,7 +71,7 @@ async def start_sniping(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.chat_id
-    stop_sniping_for_user(uid)
+    await stop_sniping_for_user(uid)
     if uid in user_sessions:
         user_sessions[uid].sniping = False
     await update.message.reply_text("🛑 Sniping stopped.")
