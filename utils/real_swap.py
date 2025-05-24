@@ -1,6 +1,6 @@
 # utils/real_swap.py
 # ──────────────────────────────────────────────────────────────────────────────
-# Monkey-patch httpx.AsyncClient to swallow `proxy` kwarg so solana-py works
+# Monkey-patch httpx.AsyncClient to swallow the `proxy` kwarg so solana-py works
 import httpx
 _original_async_init = httpx.AsyncClient.__init__
 
@@ -34,7 +34,7 @@ def clean_route(obj):
     elif isinstance(obj, list):
         return [clean_route(v) for v in obj]
     else:
-        return obj  # leave ints, floats, strings, etc.
+        return obj  # keep ints, floats, strings, etc.
 
 def detect_bool_fields(obj, path="root"):
     if isinstance(obj, dict):
@@ -47,12 +47,12 @@ def detect_bool_fields(obj, path="root"):
             detect_bool_fields(v, f"{path}[{i}]")
 
 # ──────────────────────────────────────────────────────────────────────────────
-RPC_URL = "https://api.mainnet-beta.solana.com"
-SOL_MINT = "So11111111111111111111111111111111111111112"
+RPC_URL           = "https://api.mainnet-beta.solana.com"
+SOL_MINT          = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
 JUPITER_SWAP_API  = "https://quote-api.jup.ag/v6/swap"
 
-# Initialize shared AsyncClient
+# shared AsyncClient
 client = AsyncClient(RPC_URL)
 client._provider = AsyncHTTPProvider(RPC_URL, timeout=30)
 
@@ -62,13 +62,15 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
     return kp
 
 async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 1.0) -> dict:
+    # 🔧 boolean must be string to satisfy yarl/aiohttp
     params = {
-        "inputMint": input_mint,
-        "outputMint": output_mint,
-        "amount": amount,
-        "slippage": slippage,
-        "onlyDirectRoutes": False
+        "inputMint":          input_mint,
+        "outputMint":         output_mint,
+        "amount":             amount,
+        "slippage":           slippage,
+        "onlyDirectRoutes":   "false",  # not a bool
     }
+
     async with aiohttp.ClientSession() as session:
         async with session.get(JUPITER_QUOTE_API, params=params) as resp:
             json_data = await resp.json()
@@ -78,21 +80,22 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
     if not routes:
         raise Exception(f"No route returned from Jupiter: {json_data}")
 
-    # Take the first route, then clean it
+    # select first route, then clean it
     route = routes[0]
-    detect_bool_fields(route)           # log any bools in original
-    route_clean = clean_route(route)    # remove all bools
-    detect_bool_fields(route_clean)     # verify none remain
+    detect_bool_fields(route)           # log any leftover bools
+    route_clean = clean_route(route)    # strip them
+    detect_bool_fields(route_clean)     # should show none
 
-    print(f"[DEBUG] Selected routePlan ({len(route_clean.get('routePlan', []))} steps) after cleaning")
+    steps = len(route_clean.get("routePlan", []))
+    print(f"[DEBUG] Selected routePlan ({steps} steps) after cleaning")
     return route_clean
 
 async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
-    # route is already cleaned by get_swap_route
+    # route is already cleaned by get_swap_route()
     payload = {
-        "route": route,
-        "userPublicKey": str(user_pubkey),
-        "wrapUnwrapSOL": 1,                   # never a bool
+        "route":                         route,
+        "userPublicKey":                 str(user_pubkey),
+        "wrapUnwrapSOL":                 1,  # integer, not bool
         "computeUnitPriceMicroLamports": 1,
     }
 
@@ -107,20 +110,21 @@ async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
     tx_b58 = json_data.get("swapTransaction")
     if not tx_b58:
         raise Exception(f"Jupiter swap failed, no transaction returned: {json_data}")
+
     return base58.b58decode(tx_b58)
 
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     tx = VersionedTransaction.deserialize(raw_tx_bytes)
     tx.sign([keypair])
-    signed = tx.serialize()
-    print(f"[DEBUG] Signed transaction size: {len(signed)} bytes")
+    serialized = tx.serialize()
+    print(f"[DEBUG] Signed transaction length: {len(serialized)} bytes")
 
     sig_resp = await client.send_raw_transaction(
-        signed,
+        serialized,
         opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed)
     )
     sig = sig_resp.value
-    print(f"[TXN] Sent: {sig}")
+    print(f"[TXN] Sent:      {sig}")
     await client.confirm_transaction(sig, commitment=Confirmed)
     print(f"[TXN] Confirmed: {sig}")
     return sig
@@ -130,9 +134,9 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     kp = get_keypair_from_base58(private_key)
     lamports = int(sol_amount * 1e9)
 
-    route = await get_swap_route(SOL_MINT, mint, lamports)
+    route    = await get_swap_route(SOL_MINT, mint, lamports)
     tx_bytes = await get_swap_transaction(route, kp.pubkey())
-    sig = await send_transaction(tx_bytes, kp)
+    sig      = await send_transaction(tx_bytes, kp)
 
     print(f"[BUY] Completed buy of {mint}, signature: {sig}")
 
@@ -144,14 +148,13 @@ async def sell_token_real(private_key: str, mint: str):
     ata = get_associated_token_address(kp.pubkey(), Pubkey.from_string(mint))
     balance = await get_token_balance(ata)
     print(f"[SELL] Token account {ata}, balance = {balance}")
-
     if balance == 0:
         print("[SELL] Nothing to sell.")
         return
 
-    route = await get_swap_route(mint, SOL_MINT, balance)
+    route    = await get_swap_route(mint, SOL_MINT, balance)
     tx_bytes = await get_swap_transaction(route, kp.pubkey())
-    sig = await send_transaction(tx_bytes, kp)
+    sig      = await send_transaction(tx_bytes, kp)
 
     print(f"[SELL] Completed sell of {mint}, signature: {sig}")
 
