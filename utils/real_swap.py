@@ -26,20 +26,12 @@ import json
 # ──────────────────────────────────────────────────────────────────────────────
 def clean_route(obj):
     if isinstance(obj, dict):
-        cleaned = {}
-        for k, v in obj.items():
-            if v is None:
-                continue  # remove None keys entirely
-            elif isinstance(v, bool):
-                cleaned[k] = int(v)  # convert bool True/False to 1/0
-            else:
-                cleaned[k] = clean_route(v)
-        return cleaned
+        return {k: clean_route(v) for k, v in obj.items() if v is not None}
     elif isinstance(obj, list):
         return [clean_route(v) for v in obj]
     else:
-        return obj  # ints, floats, strings, etc.
-
+        return obj  # don't touch booleans, ints, strings, etc.
+        
 def detect_bool_fields(obj, path="root"):
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -98,7 +90,7 @@ async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
     payload = {
         "route":                         route,
         "userPublicKey":                 str(user_pubkey),
-        "wrapUnwrapSOL":                 1,  # int, not bool
+        "wrapUnwrapSOL":                 True
         "computeUnitPriceMicroLamports": 1,
     }
 
