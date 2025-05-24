@@ -22,17 +22,17 @@ from solana.rpc.types import TxOpts
 import json
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Updated cleaner: convert bool to int, drop None values, preserve everything else
+# Helper to drop None values from nested dict/list
 # ──────────────────────────────────────────────────────────────────────────────
 def clean_route(obj):
     if isinstance(obj, dict):
         return {k: clean_route(v) for k, v in obj.items() if v is not None}
-    elif isinstance(obj, list):
+    if isinstance(obj, list):
         return [clean_route(v) for v in obj]
-    else:
-        return obj  # don't touch booleans, ints, strings, etc.
-        
+    return obj
+
 def detect_bool_fields(obj, path="root"):
+    """Logs any boolean values (for debugging)."""
     if isinstance(obj, dict):
         for k, v in obj.items():
             if isinstance(v, bool):
@@ -46,9 +46,8 @@ def detect_bool_fields(obj, path="root"):
 RPC_URL           = "https://api.mainnet-beta.solana.com"
 SOL_MINT          = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API = "https://lite-api.jup.ag/swap/v1/quote"
-JUPITER_SWAP_API  = "https://quote-api.jup.ag/v6/swap"
+JUPITER_SWAP_API  = "https://lite-api.jup.ag/swap/v1/swap"
 
-# shared AsyncClient
 client = AsyncClient(RPC_URL)
 client._provider = AsyncHTTPProvider(RPC_URL, timeout=30)
 
@@ -59,49 +58,58 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
 
 async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 1.0) -> dict:
     params = {
-        "inputMint":        input_mint,
-        "outputMint":       output_mint,
-        "amount":           amount,
-        "slippageBps":      int(slippage * 100),  # 1.0 → 100 bps
-        "onlyDirectRoutes": "false",
-        "restrictIntermediateTokens": "true"
+        "inputMint":                input_mint,
+        "outputMint":               output_mint,
+        "amount":                   amount,
+        "slippageBps":              int(slippage * 100),  # e.g. 1.0 -> 100 bps
+        "onlyDirectRoutes":         "false",
+        "restrictIntermediateTokens": "true",
     }
 
     async with aiohttp.ClientSession() as session:
         async with session.get(JUPITER_QUOTE_API, params=params) as resp:
             json_data = await resp.json()
 
-    print(f"[DEBUG] Quote response: {json.dumps(json_data, indent=2)}")
+    print(f"[DEBUG] Quote response:\n{json.dumps(json_data, indent=2)}")
 
-    # Jupiter now returns a single route directly
+    # New flat response format: ensure we have routePlan
     if not isinstance(json_data, dict) or "routePlan" not in json_data:
         raise Exception(f"No valid route returned from Jupiter: {json_data}")
 
     route = json_data
     detect_bool_fields(route)
-    route_clean = clean_route(route)
-    detect_bool_fields(route_clean)
-
-    steps = len(route_clean.get("routePlan", []))
-    print(f"[DEBUG] Selected routePlan ({steps} steps) after cleaning")
-    return route_clean
+    steps = len(route.get("routePlan", []))
+    print(f"[DEBUG] Selected raw routePlan ({steps} steps)")
+    return route  # return raw, unmodified route
 
 async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
+    # Clean only None values, leave booleans and numbers intact
+    route_for_swap = clean_route(route)
+
     payload = {
-        "route":                         route,
+        "route":                         route_for_swap,
         "userPublicKey":                 str(user_pubkey),
         "wrapUnwrapSOL":                 True,
         "computeUnitPriceMicroLamports": 1,
     }
 
-    print("[DEBUG] Final payload to Jupiter (no bools, no None):")
+    print("[DEBUG] Final payload to Jupiter:")
     print(json.dumps(payload, indent=2))
 
     async with aiohttp.ClientSession() as session:
         async with session.post(JUPITER_SWAP_API, json=payload) as resp:
-            json_data = await resp.json()
+            status = resp.status
+            url = resp.url
+            print(f"[DEBUG] Swap HTTP status: {status}, URL: {url}")
+            try:
+                json_data = await resp.json()
+            except Exception as e:
+                text = await resp.text()
+                print(f"[ERROR] Failed to parse swap JSON: {e}")
+                print(f"[ERROR] Raw swap response: {text}")
+                raise
 
-    print(f"[DEBUG] Swap response: {json_data}")
+    print(f"[DEBUG] Swap response:\n{json.dumps(json_data, indent=2)}")
     tx_b58 = json_data.get("swapTransaction")
     if not tx_b58:
         raise Exception(f"Jupiter swap failed, no transaction returned: {json_data}")
