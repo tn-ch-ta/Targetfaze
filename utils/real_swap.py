@@ -26,21 +26,17 @@ import json
 
 def clean_route(obj):
     """
-    Recursively remove any boolean-valued entries from the route dict,
-    since Jupiter expects only str/int/float values.
+    Recursively remove any boolean values from dicts/lists inside the route.
+    Jupiter API expects only str, int, or float.
     """
     if isinstance(obj, dict):
-        cleaned = {}
-        for k, v in obj.items():
-            # Skip boolean values
-            if isinstance(v, bool):
-                continue
-            # Recurse into nested dict/list
-            cleaned_val = clean_route(v)
-            cleaned[k] = cleaned_val
-        return cleaned
+        return {
+            k: clean_route(v)
+            for k, v in obj.items()
+            if not isinstance(v, bool)
+        }
     elif isinstance(obj, list):
-        return [clean_route(item) for item in obj]
+        return [clean_route(v) for v in obj]
     else:
         return obj
 
@@ -81,12 +77,18 @@ async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
     # First, clean out any boolean fields from route
     route_clean = clean_route(route)
 
-    # Debug dump cleaned route
-    try:
-        import json
-        print(f"[DEBUG] Cleaned route JSON: {json.dumps(route_clean)[:500]}")
-    except Exception:
-        pass
+# Debug log what keys still exist that are bools
+def detect_bool_fields(obj, path="root"):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, bool):
+                print(f"[DEBUG] ⚠️ Boolean field detected: {path}.{k} = {v}")
+            detect_bool_fields(v, f"{path}.{k}")
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            detect_bool_fields(v, f"{path}[{i}]")
+
+detect_bool_fields(route_clean)
 
     payload = {
         "route": route_clean,
