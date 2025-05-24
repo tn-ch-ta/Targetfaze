@@ -88,7 +88,7 @@ def detect_bool_fields(obj, path="root"):
         for i, v in enumerate(obj):
             detect_bool_fields(v, f"{path}[{i}]")
 
-detect_bool_fields(route_clean)
+    detect_bool_fields(route_clean)
 
     payload = {
         "route": route_clean,
