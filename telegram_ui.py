@@ -66,7 +66,7 @@ async def start_sniping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not session.private_key:
         await update.message.reply_text("⚠️ Please set your wallet first using /setwallet.")
         return
-    start_sniping_for_user(uid, session)
+    await start_sniping_for_user(uid, session)
     await update.message.reply_text("🚀 Now sniping brand new Pump.fun tokens...")
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
