@@ -90,7 +90,7 @@ async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
     payload = {
         "route":                         route,
         "userPublicKey":                 str(user_pubkey),
-        "wrapUnwrapSOL":                 True
+        "wrapUnwrapSOL":                 True,
         "computeUnitPriceMicroLamports": 1,
     }
 
