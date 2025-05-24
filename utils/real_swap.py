@@ -21,6 +21,7 @@ from solana.rpc.commitment import Confirmed
 from solana.rpc.types import TxOpts
 import json
 
+# Recursively remove booleans from route
 def clean_route(obj):
     if isinstance(obj, dict):
         return {
@@ -30,6 +31,8 @@ def clean_route(obj):
         }
     elif isinstance(obj, list):
         return [clean_route(v) for v in obj]
+    elif isinstance(obj, bool):
+        return None  # Ensures we never return bool to outer layers
     else:
         return obj
 
@@ -72,7 +75,7 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
     if not routes:
         raise Exception(f"No route returned from Jupiter: {json_data}")
     route = routes[0]
-    print(f"[DEBUG] Selected routePlan ({len(route.get('routePlan',[]))} steps)")
+    print(f"[DEBUG] Selected routePlan ({len(route.get('routePlan', []))} steps)")
     return route
 
 async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
@@ -82,11 +85,13 @@ async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
     payload = {
         "route": route_clean,
         "userPublicKey": str(user_pubkey),
-        "wrapUnwrapSOL": True,
+        "wrapUnwrapSOL": 1,  # Avoid bool value
         "computeUnitPriceMicroLamports": 1,
     }
 
-    print(f"[DEBUG] Swap payload prepared; user={user_pubkey}, inAmount={route_clean.get('inAmount')}")
+    print("[DEBUG] Final payload to Jupiter (booleans should be removed):")
+    print(json.dumps(payload, indent=2))
+
     async with aiohttp.ClientSession() as session:
         async with session.post(JUPITER_SWAP_API, json=payload) as resp:
             json_data = await resp.json()
