@@ -22,6 +22,28 @@ from solana.rpc.commitment import Confirmed
 from solana.rpc.types import TxOpts
 import json
 
+# utils/real_swap.py (add near top, after imports)
+
+def clean_route(obj):
+    """
+    Recursively remove any boolean-valued entries from the route dict,
+    since Jupiter expects only str/int/float values.
+    """
+    if isinstance(obj, dict):
+        cleaned = {}
+        for k, v in obj.items():
+            # Skip boolean values
+            if isinstance(v, bool):
+                continue
+            # Recurse into nested dict/list
+            cleaned_val = clean_route(v)
+            cleaned[k] = cleaned_val
+        return cleaned
+    elif isinstance(obj, list):
+        return [clean_route(item) for item in obj]
+    else:
+        return obj
+
 RPC_URL = "https://api.mainnet-beta.solana.com"
 SOL_MINT = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
@@ -56,24 +78,24 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
     return route
 
 async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
-    # ✅ Debug: Ensure route is serializable (Jupiter sometimes returns unserializable objects)
+    # First, clean out any boolean fields from route
+    route_clean = clean_route(route)
+
+    # Debug dump cleaned route
     try:
-        json.dumps(route)
-    except TypeError as e:
-        print(f"[ERROR] Route not serializable: {e}")
-        print(f"[DEBUG] Offending route: {route}")
-        raise
+        import json
+        print(f"[DEBUG] Cleaned route JSON: {json.dumps(route_clean)[:500]}")
+    except Exception:
+        pass
+
     payload = {
-        "route": route,
+        "route": route_clean,
         "userPublicKey": str(user_pubkey),
         "wrapUnwrapSOL": True,
         "computeUnitPriceMicroLamports": 1,
     }
 
-    # Omit feeAccount if not used
-    # payload["feeAccount"] = "YOUR_FEE_ACCOUNT_HERE"  # if needed
-
-    print(f"[DEBUG] Swap payload: {{'userPublicKey': {user_pubkey}, 'inAmount': {route.get('inAmount')}}}")
+    print(f"[DEBUG] Swap payload prepared; user={user_pubkey}, inAmount={route_clean.get('inAmount')}")
     async with aiohttp.ClientSession() as session:
         async with session.post(JUPITER_SWAP_API, json=payload) as resp:
             json_data = await resp.json()
