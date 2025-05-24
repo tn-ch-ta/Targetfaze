@@ -20,6 +20,7 @@ from solana.rpc.async_api import AsyncClient
 from solana.rpc.providers.async_http import AsyncHTTPProvider
 from solana.rpc.commitment import Confirmed
 from solana.rpc.types import TxOpts
+import json
 
 RPC_URL = "https://api.mainnet-beta.solana.com"
 SOL_MINT = "So11111111111111111111111111111111111111112"
@@ -55,6 +56,13 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
     return route
 
 async def get_swap_transaction(route: dict, user_pubkey: Pubkey) -> bytes:
+    # ✅ Debug: Ensure route is serializable (Jupiter sometimes returns unserializable objects)
+    try:
+        json.dumps(route)
+    except TypeError as e:
+        print(f"[ERROR] Route not serializable: {e}")
+        print(f"[DEBUG] Offending route: {route}")
+        raise
     payload = {
         "route": route,
         "userPublicKey": str(user_pubkey),
