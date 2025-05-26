@@ -60,7 +60,11 @@ async def check_pumpfun_liquidity_and_marketcap(mint_address: str) -> bool:
             async with session.get(PUMP_FUN_API, timeout=7) as resp:
                 coins = await resp.json()
 
-        token = next((t for t in coins if t["mint"] == mint_address), None)
+        if not isinstance(coins, list):
+            logger.error(f"[🚫PUMP.FUN FORMAT] Unexpected response format: not a list.")
+            return False
+
+        token = next((t for t in coins if t.get("mint") == mint_address), None)
         if token is None:
             logger.warning(f"[❌PUMP.FUN] Token {mint_address} not found in Pump.fun latest list.")
             return False
