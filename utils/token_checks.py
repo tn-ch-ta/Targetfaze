@@ -9,10 +9,10 @@ httpx.AsyncClient.__init__ = _patched_async_init
 import asyncio
 import logging
 import aiohttp
-
 from solders.pubkey import Pubkey
 from solana.rpc.async_api import AsyncClient
-from spl.token.instructions import get_mint_info
+from spl.token._layouts import MINT_LAYOUT
+from base64 import b64decode
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,10 +25,6 @@ JUPITER_QUOTE_API = "https://lite-api.jup.ag/swap/v1/quote"
 
 
 async def is_token_rug(mint_address: str) -> bool:
-    """
-    Honeypot/rug detection via Jupiter quote back to SOL.
-    If outAmount == 0, treat as rug.
-    """
     params = {
         "inputMint": mint_address,
         "outputMint": SOL_MINT,
@@ -54,21 +50,27 @@ async def is_token_rug(mint_address: str) -> bool:
 
 
 async def check_freeze_authority(mint_address: str) -> bool:
-    """
-    Returns True if SAFE (no freeze authority), False if risky.
-    """
     try:
         client = AsyncClient(RPC_URL)
         mint_pubkey = Pubkey.from_string(mint_address)
-        mint_info = await get_mint_info(client, mint_pubkey)
+        resp = await client.get_account_info(mint_pubkey)
         await client.close()
 
-        freeze_auth = mint_info.value.freeze_authority
-        if freeze_auth is None:
+        data = resp.value.data
+        if not data or data[1] != "base64":
+            logger.error(f"[🚫FREEZE CHECK] Invalid or missing data for {mint_address}")
+            return False
+
+        raw = b64decode(data[0])
+        parsed = MINT_LAYOUT.parse(raw)
+        freeze_auth_bytes = parsed.freeze_authority_option and parsed.freeze_authority
+        has_freeze = freeze_auth_bytes is not None
+
+        if not has_freeze:
             logger.info(f"[✅FREEZE CHECK] {mint_address} has no freeze authority (safe).")
             return True
 
-        logger.info(f"[❌FREEZE CHECK] {mint_address} has freeze authority: {freeze_auth}")
+        logger.info(f"[❌FREEZE CHECK] {mint_address} has freeze authority: {Pubkey(freeze_auth_bytes)}")
         return False
     except Exception as e:
         logger.error(f"[🚫FREEZE CHECK] Error checking freeze authority for {mint_address}: {e}")
@@ -76,9 +78,6 @@ async def check_freeze_authority(mint_address: str) -> bool:
 
 
 async def check_insider_distribution(mint_address: str, max_pct: float = 10.0) -> bool:
-    """
-    Ensure no single wallet holds >= max_pct% of total supply.
-    """
     try:
         client = AsyncClient(RPC_URL)
         mint_pubkey = Pubkey.from_string(mint_address)
@@ -98,7 +97,7 @@ async def check_insider_distribution(mint_address: str, max_pct: float = 10.0) -
         top_amount = int(accounts[0].amount)
         top_pct = (top_amount / total) * 100
         if top_pct >= max_pct:
-            logger.info(f"[INSIDER CHECK] {mint_address} top holder {top_pct:.2f}% >= {max_pct}%.")
+            logger.info(f"[❌INSIDER CHECK] {mint_address} top holder {top_pct:.2f}% >= {max_pct}%.")
             return False
 
         logger.info(f"[✅INSIDER CHECK] {mint_address} passed with top holder {top_pct:.2f}%.")
@@ -111,9 +110,6 @@ async def check_insider_distribution(mint_address: str, max_pct: float = 10.0) -
 async def check_holder_diversity(
     mint_address: str, top_n: int = 10, max_pct: float = 70.0
 ) -> bool:
-    """
-    Ensure top_n holders together own < max_pct% of supply.
-    """
     try:
         client = AsyncClient(RPC_URL)
         mint_pubkey = Pubkey.from_string(mint_address)
@@ -129,7 +125,7 @@ async def check_holder_diversity(
         top_sum = sum(int(acc.amount) for acc in accounts[:top_n])
         top_pct = (top_sum / total) * 100
         if top_pct >= max_pct:
-            logger.info(f"[⚠️DIVERSITY CHECK] {mint_address} top {top_n} hold {top_pct:.2f}% >= {max_pct}%.")
+            logger.info(f"[❌DIVERSITY CHECK] {mint_address} top {top_n} hold {top_pct:.2f}% >= {max_pct}%.")
             return False
 
         logger.info(f"[✅DIVERSITY CHECK] {mint_address} passed with top {top_n} holding {top_pct:.2f}%.")
@@ -140,9 +136,6 @@ async def check_holder_diversity(
 
 
 async def check_liquidity(mint_address: str, min_sol: float = 0.5) -> bool:
-    """
-    Check if at least min_sol SOL liquidity exists (via Jupiter quote).
-    """
     lam = int(min_sol * 1e9)
     params = {
         "inputMint": SOL_MINT,
@@ -169,9 +162,6 @@ async def check_liquidity(mint_address: str, min_sol: float = 0.5) -> bool:
 
 
 async def passes_all_checks(mint_address: str) -> bool:
-    """
-    Run all safety checks and combine results.
-    """
     try:
         is_rug_flag = await is_token_rug(mint_address)
         freeze_safe = await check_freeze_authority(mint_address)
