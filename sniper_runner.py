@@ -44,8 +44,8 @@ async def _snipe_loop(uid: int, session):
             if passed:
                 print(f"[{uid}] ✅ PASSED: {name} ({mint}) - Sniping now...")
             else:
-                print(f"[{uid}] ❌ Skipped {name} ({mint}) - Failed safety checks")
-                print(f"[{uid}] ⚠️ Proceeding anyway with reduced hold time (30s)")
+                print(f"[{uid}] ⚠️ Proceed with caution {name} ({mint}) - Failed safety checks")
+                print(f"[{uid}] ⚠️ Proceeding with reduced hold time (30s)")
 
             # === Real Buy ===
             try:
