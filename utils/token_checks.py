@@ -19,19 +19,15 @@ logger = logging.getLogger("token_checks")
 # ── Constants ─────────────────────────────────────────────────────────────────
 SOLANA_RPC_URLS = [
     "https://api.mainnet-beta.solana.com",
-    "https://rpc.ankr.com/solana",
-    "https://api.metaplex.solana.com"
+    "https://solana-mainnet.g.alchemy.com/v2/NHAveomHS7q-QGj2ddOa86_QzVi9QzeY",
+    "https://solana-mainnet.g.alchemy.com/v2/D6p4-dGHuCfO42nBFTPzJdpWBN9vUlsz",
+    "https://solana-rpc.publicnode.com",
+    "https://solana.drpc.org"
 ]
 SOL_MINT = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API = "https://lite-api.jup.ag/swap/v1/quote"
 JUPITER_TOKEN_INFO_API = "https://lite-api.jup.ag/tokens/v1/token/{}"
 
-BURN_ADDRESSES = {
-    "11111111111111111111111111111111",
-    "SysvarRent111111111111111111111111111111111",
-    "SysvarC1ock11111111111111111111111111111111",
-    "1nc1nerator11111111111111111111111111111111"
-}
 
 
 def get_random_client() -> AsyncClient:
