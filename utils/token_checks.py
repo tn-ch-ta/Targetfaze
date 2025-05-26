@@ -6,124 +6,197 @@ def _patched_async_init(self, *args, proxy=None, **kwargs):
     return _original_async_init(self, *args, **kwargs)
 httpx.AsyncClient.__init__ = _patched_async_init
 
-import aiohttp
 import asyncio
+import logging
+import aiohttp
+
 from solders.pubkey import Pubkey
+from solana.rpc.async_api import AsyncClient
+from spl.token.instructions import get_mint_info
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("token_checks")
 
 # Constants
 RPC_URL = "https://api.mainnet-beta.solana.com"
 SOL_MINT = "So11111111111111111111111111111111111111112"
-JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
+JUPITER_QUOTE_API = "https://lite-api.jup.ag/swap/v1/quote"
 
-# Helper to send raw JSON-RPC to Solana
-async def _rpc(method: str, params: list):
-    payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
-    async with aiohttp.ClientSession() as sess:
-        async with sess.post(RPC_URL, json=payload, timeout=10) as resp:
-            resp.raise_for_status()
-            data = await resp.json()
-            return data.get("result")
 
-async def is_token_rug(mint: str) -> bool:
+async def is_token_rug(mint_address: str) -> bool:
     """
     Honeypot/rug detection via Jupiter quote back to SOL.
-    If no direct route or outAmount==0, treat as rug.
+    If outAmount == 0, treat as rug.
     """
     params = {
-        "inputMint": mint,
+        "inputMint": mint_address,
         "outputMint": SOL_MINT,
-        "amount": 1000,        # tiny amount
-        "slippage": 1,
-        "onlyDirectRoutes": True
+        "amount": 1000,
+        "slippageBps": 100,
+        "onlyDirectRoutes": True,
     }
     try:
-        async with aiohttp.ClientSession() as sess:
-            async with sess.get(JUPITER_QUOTE_API, params=params, timeout=5) as resp:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(JUPITER_QUOTE_API, params=params, timeout=5) as resp:
                 data = await resp.json()
-        routes = data.get("data", [])
-        return not routes or int(routes[0].get("outAmount", 0)) == 0
-    except Exception:
-        return True  # assume rug on error
 
-async def check_freeze_authority(mint: str) -> bool:
+        out_amount = int(data.get("outAmount", 0))
+        if out_amount == 0:
+            logger.info(f"[❌RUG CHECK] {mint_address} is a rug (outAmount=0).")
+            return True
+
+        logger.info(f"[✅RUG CHECK] {mint_address} passed rug check (outAmount={out_amount}).")
+        return False
+    except Exception as e:
+        logger.error(f"[🚫RUG CHECK] Error checking rug status for {mint_address}: {e}")
+        return True
+
+
+async def check_freeze_authority(mint_address: str) -> bool:
     """
     Returns True if SAFE (no freeze authority), False if risky.
     """
     try:
-        # getAccountInfo with jsonParsed
-        result = await _rpc("getAccountInfo", [mint, {"encoding": "jsonParsed"}])
-        info = result["value"]
-        if info is None:
-            return False
-        parsed = info["data"]["parsed"]["info"]
-        return parsed.get("freezeAuthority") is None
-    except Exception:
+        client = AsyncClient(RPC_URL)
+        mint_pubkey = Pubkey.from_string(mint_address)
+        mint_info = await get_mint_info(client, mint_pubkey)
+        await client.close()
+
+        freeze_auth = mint_info.value.freeze_authority
+        if freeze_auth is None:
+            logger.info(f"[✅FREEZE CHECK] {mint_address} has no freeze authority (safe).")
+            return True
+
+        logger.info(f"[❌FREEZE CHECK] {mint_address} has freeze authority: {freeze_auth}")
+        return False
+    except Exception as e:
+        logger.error(f"[🚫FREEZE CHECK] Error checking freeze authority for {mint_address}: {e}")
         return False
 
-async def check_insider_distribution(mint: str, max_pct: float = 10.0) -> bool:
+
+async def check_insider_distribution(mint_address: str, max_pct: float = 10.0) -> bool:
     """
     Ensure no single wallet holds >= max_pct% of total supply.
     """
     try:
-        resp = await _rpc("getTokenLargestAccounts", [mint])
-        accounts = resp["value"]
-        total = sum(int(a["amount"]) for a in accounts)
-        if total == 0:
+        client = AsyncClient(RPC_URL)
+        mint_pubkey = Pubkey.from_string(mint_address)
+        resp = await client.get_token_largest_accounts(mint_pubkey)
+        await client.close()
+
+        accounts = resp.value
+        if not accounts:
+            logger.info(f"[⚠️INSIDER CHECK] {mint_address} has no holders.")
             return False
-        top = int(accounts[0]["amount"])
-        return (top / total * 100) < max_pct
-    except Exception:
+
+        total = sum(int(acc.amount) for acc in accounts)
+        if total == 0:
+            logger.info(f"[⚠️INSIDER CHECK] {mint_address} total supply is zero.")
+            return False
+
+        top_amount = int(accounts[0].amount)
+        top_pct = (top_amount / total) * 100
+        if top_pct >= max_pct:
+            logger.info(f"[INSIDER CHECK] {mint_address} top holder {top_pct:.2f}% >= {max_pct}%.")
+            return False
+
+        logger.info(f"[✅INSIDER CHECK] {mint_address} passed with top holder {top_pct:.2f}%.")
+        return True
+    except Exception as e:
+        logger.error(f"[🚫INSIDER CHECK] Error for {mint_address}: {e}")
         return False
 
-async def check_holder_diversity(mint: str, top_n: int = 10, max_pct: float = 70.0) -> bool:
+
+async def check_holder_diversity(
+    mint_address: str, top_n: int = 10, max_pct: float = 70.0
+) -> bool:
     """
     Ensure top_n holders together own < max_pct% of supply.
     """
     try:
-        resp = await _rpc("getTokenLargestAccounts", [mint])
-        accounts = resp["value"]
-        total = sum(int(a["amount"]) for a in accounts)
+        client = AsyncClient(RPC_URL)
+        mint_pubkey = Pubkey.from_string(mint_address)
+        resp = await client.get_token_largest_accounts(mint_pubkey)
+        await client.close()
+
+        accounts = resp.value
+        total = sum(int(acc.amount) for acc in accounts)
         if total == 0 or len(accounts) < top_n:
+            logger.info(f"[⚠️DIVERSITY CHECK] {mint_address} insufficient data or total zero.")
             return False
-        top_sum = sum(int(a["amount"]) for a in accounts[:top_n])
-        return (top_sum / total * 100) < max_pct
-    except Exception:
+
+        top_sum = sum(int(acc.amount) for acc in accounts[:top_n])
+        top_pct = (top_sum / total) * 100
+        if top_pct >= max_pct:
+            logger.info(f"[⚠️DIVERSITY CHECK] {mint_address} top {top_n} hold {top_pct:.2f}% >= {max_pct}%.")
+            return False
+
+        logger.info(f"[✅DIVERSITY CHECK] {mint_address} passed with top {top_n} holding {top_pct:.2f}%.")
+        return True
+    except Exception as e:
+        logger.error(f"[🚫DIVERSITY CHECK] Error for {mint_address}: {e}")
         return False
 
-async def check_liquidity(mint: str, min_sol: float = 0.5) -> bool:
+
+async def check_liquidity(mint_address: str, min_sol: float = 0.5) -> bool:
     """
     Check if at least min_sol SOL liquidity exists (via Jupiter quote).
     """
     lam = int(min_sol * 1e9)
     params = {
         "inputMint": SOL_MINT,
-        "outputMint": mint,
+        "outputMint": mint_address,
         "amount": lam,
-        "slippage": 1,
-        "onlyDirectRoutes": True
+        "slippageBps": 100,
+        "onlyDirectRoutes": True,
     }
     try:
-        async with aiohttp.ClientSession() as sess:
-            async with sess.get(JUPITER_QUOTE_API, params=params, timeout=5) as resp:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(JUPITER_QUOTE_API, params=params, timeout=5) as resp:
                 data = await resp.json()
-        routes = data.get("data", [])
-        if not routes:
+
+        out_amount = int(data.get("outAmount", 0))
+        if out_amount == 0:
+            logger.info(f"[❌LIQUIDITY CHECK] {mint_address} has 0 outAmount (no liquidity).")
             return False
-        out_amount = int(routes[0].get("outAmount", 0))
-        return out_amount >= lam
-    except Exception:
+
+        logger.info(f"[✅LIQUIDITY CHECK] {mint_address} has liquidity (outAmount={out_amount}).")
+        return True
+    except Exception as e:
+        logger.error(f"[🚫LIQUIDITY CHECK] Error for {mint_address}: {e}")
         return False
 
-async def passes_all_checks(mint: str) -> bool:
+
+async def passes_all_checks(mint_address: str) -> bool:
     """
-    Run all safety checks in parallel and combine results.
+    Run all safety checks and combine results.
     """
-    is_rug, freeze_safe, insider_ok, diversity_ok, liquidity_ok = await asyncio.gather(
-        is_token_rug(mint),
-        check_freeze_authority(mint),
-        check_insider_distribution(mint),
-        check_holder_diversity(mint),
-        check_liquidity(mint),
-    )
-    # Only proceed if not rug, freeze_safe, and all others True
-    return (not is_rug) and freeze_safe and insider_ok and diversity_ok and liquidity_ok
+    try:
+        is_rug_flag = await is_token_rug(mint_address)
+        freeze_safe = await check_freeze_authority(mint_address)
+        insider_ok = await check_insider_distribution(mint_address)
+        diversity_ok = await check_holder_diversity(mint_address)
+        liquidity_ok = await check_liquidity(mint_address)
+
+        if is_rug_flag:
+            logger.info(f"[❌ALL CHECKS] {mint_address} failed: Rug detected.")
+            return False
+        if not freeze_safe:
+            logger.info(f"[❌ALL CHECKS] {mint_address} failed: Freeze authority present.")
+            return False
+        if not insider_ok:
+            logger.info(f"[❌ALL CHECKS] {mint_address} failed: Insider concentration too high.")
+            return False
+        if not diversity_ok:
+            logger.info(f"[❌ALL CHECKS] {mint_address} failed: Holder diversity insufficient.")
+            return False
+        if not liquidity_ok:
+            logger.info(f"[❌ALL CHECKS] {mint_address} failed: Insufficient liquidity.")
+            return False
+
+        logger.info(f"[✅ALL CHECKS] {mint_address} passed all checks.")
+        return True
+    except Exception as e:
+        logger.error(f"[🚫ALL CHECKS] Error for {mint_address}: {e}")
+        return False
