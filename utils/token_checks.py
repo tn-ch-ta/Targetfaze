@@ -8,6 +8,7 @@ httpx.AsyncClient.__init__ = _patched_async_init
 
 import logging
 import random
+import asyncio
 import aiohttp
 from solders.pubkey import Pubkey
 from solana.rpc.async_api import AsyncClient
@@ -27,7 +28,6 @@ SOLANA_RPC_URLS = [
 SOL_MINT = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API = "https://lite-api.jup.ag/swap/v1/quote"
 JUPITER_TOKEN_INFO_API = "https://lite-api.jup.ag/tokens/v1/token/{}"
-
 
 
 def get_random_client() -> AsyncClient:
@@ -82,68 +82,14 @@ async def check_freeze_authority(mint_address: str) -> bool:
         return False
 
 
-async def check_token_holder_distribution(mint_address: str) -> int:
-    """
-    Analyze token distribution by inspecting the top holders of the token mint.
-    Heuristic:
-        - Top holder is burn address → safe → hold 60s
-        - Top holder > 70% → centralized → hold 25s
-        - Top 3 holders > 90% → risky → hold 25s
-        - Otherwise → decentralized → hold 60s
-    Return 0 on error or empty results.
-    """
-    try:
-        client = get_random_client()
-        resp = await client.get_token_largest_accounts(Pubkey.from_string(mint_address))
-        await client.close()
-
-        holders = resp.value
-        if not holders:
-            logger.warning(f"[❌DISTRIBUTION CHECK] No holders found for {mint_address}.")
-            return 0
-
-        top_amounts = [h.ui_amount for h in holders if h.ui_amount]
-        top_addresses = [h.address.to_string() for h in holders]
-        total = sum(top_amounts)
-
-        if total == 0:
-            logger.warning(f"[❌DISTRIBUTION CHECK] Total token supply is 0 for {mint_address}.")
-            return 0
-
-        top_pct = top_amounts[0] / total
-        top3_pct = sum(top_amounts[:3]) / total
-
-        logger.info(f"[📊DISTRIBUTION CHECK] {mint_address} Top1={top_pct:.2%}, Top3={top3_pct:.2%}")
-        
-
-        if top_pct > 0.4:
-            logger.warning(f"[⚠️DISTRIBUTION CHECK] Top holder owns >40% → Hold 25s")
-            return 25
-
-        if top3_pct > 0.9:
-            logger.warning(f"[⚠️DISTRIBUTION CHECK] Top 3 holders own >90% → Hold 10s")
-            return 10
-
-        logger.info(f"[✅DISTRIBUTION CHECK] Holder distribution is decentralized → Hold 60s")
-        return 60
-
-    except Exception as e:
-        logger.error(f"[🚫DISTRIBUTION CHECK] Error checking distribution for {mint_address}: {e}")
-        return 0
-
-
 async def passes_all_checks(mint_address: str) -> int:
     """
-    Run all safety checks in sequence:
+    Run safety checks:
      1. is_token_rug()
      2. check_freeze_authority()
-     3. check_token_holder_distribution()
 
-    Returns:
-      0  → fail/skip
-      25 → buy + hold 25s
-      50 → buy + hold 50s
-      60 → buy + hold 60s
+    If passed → return 60s hold time
+    Else → return 0 (skip)
     """
     try:
         if await is_token_rug(mint_address):
@@ -154,13 +100,8 @@ async def passes_all_checks(mint_address: str) -> int:
             logger.info(f"[❌ALL CHECKS] {mint_address} has freeze authority.")
             return 0
 
-        hold_time = await check_token_holder_distribution(mint_address)
-        if hold_time == 0:
-            logger.info(f"[❌ALL CHECKS] {mint_address} failed distribution check.")
-            return 0
-
-        logger.info(f"[✅ALL CHECKS] {mint_address} passed all checks (hold {hold_time}s).")
-        return hold_time
+        logger.info(f"[✅ALL CHECKS] {mint_address} passed all checks (hold 60s).")
+        return 60
 
     except Exception as e:
         logger.error(f"[🚫ALL CHECKS] Unexpected error for {mint_address}: {e}")
