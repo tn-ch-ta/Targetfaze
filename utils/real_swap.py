@@ -154,6 +154,11 @@ async def sell_token_real(private_key: str, mint: str):
     if balance == 0:
         print("[SELL] Nothing to sell.")
         return
+    
+    sell_amount = int(balance * 0.98)
+    if sell_amount == 0:
+        print("[SELL] 98% of balance is 0, skipping.")
+        return
 
     quote_response = await get_swap_route(mint, SOL_MINT, balance)
     tx_bytes       = await get_swap_transaction(quote_response, kp.pubkey())
