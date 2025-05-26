@@ -39,7 +39,7 @@ async def is_token_rug(mint_address: str) -> bool:
     params = {
         "inputMint": mint_address,
         "outputMint": SOL_MINT,
-        "amount": 100_000,
+        "amount": 1000000,
         "slippageBps": 100,
         "onlyDirectRoutes": "false",
         "restrictIntermediateTokens": "true",
