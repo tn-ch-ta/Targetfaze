@@ -58,15 +58,19 @@ async def check_pumpfun_liquidity_and_marketcap(mint_address: str) -> bool:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(PUMP_FUN_API, timeout=7) as resp:
-                coins = await resp.json()
+                data = await resp.json()
 
-        if not isinstance(coins, list):
-            logger.error(f"[🚫PUMP.FUN FORMAT] Unexpected response format: not a list.")
-            return False
-
-        token = next((t for t in coins if t.get("mint") == mint_address), None)
-        if token is None:
-            logger.warning(f"[❌PUMP.FUN] Token {mint_address} not found in Pump.fun latest list.")
+        # Handle case where a single token is returned
+        if isinstance(data, dict) and data.get("mint") == mint_address:
+            token = data
+        # Handle case where a list of tokens is returned (older behavior)
+        elif isinstance(data, list):
+            token = next((t for t in data if t.get("mint") == mint_address), None)
+            if token is None:
+                logger.warning(f"[❌PUMP.FUN] Token {mint_address} not found in Pump.fun latest list.")
+                return False
+        else:
+            logger.error(f"[🚫PUMP.FUN FORMAT] Unexpected response format from Pump.fun")
             return False
 
         reserve_lamports = float(token.get("real_sol_reserves", 0))
