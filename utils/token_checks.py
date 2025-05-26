@@ -30,7 +30,8 @@ async def is_token_rug(mint_address: str) -> bool:
         "outputMint": SOL_MINT,
         "amount": 1000,
         "slippageBps": 100,
-        "onlyDirectRoutes": True,
+        "onlyDirectRoutes": "false",
+        "restrictIntermediateTokens": "true",
     }
     try:
         async with aiohttp.ClientSession() as session:
@@ -142,7 +143,8 @@ async def check_liquidity(mint_address: str, min_sol: float = 0.5) -> bool:
         "outputMint": mint_address,
         "amount": lam,
         "slippageBps": 100,
-        "onlyDirectRoutes": True,
+        "onlyDirectRoutes": "false",
+        "restrictIntermediateTokens": "true",
     }
     try:
         async with aiohttp.ClientSession() as session:
