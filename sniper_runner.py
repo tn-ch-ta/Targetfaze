@@ -38,14 +38,14 @@ async def _snipe_loop(uid: int, session):
             seen_tokens.add(mint)
 
             # === Safety checks ===
-            passed = await passes_all_checks(mint)
-            hold_duration = 60 if passed else 30
-
-            if passed:
-                print(f"[{uid}] ✅ PASSED: {name} ({mint}) - Sniping now...")
+            hold_duration = await passes_all_checks(mint)
+            if hold_duration == 0:
+                print(f"[{uid}] ❌ Skipping {name} ({mint}) - Failed all safety checks.")
+                continue
+            elif hold_duration < 60:
+                print(f"[{uid}] ⚠️ {name} ({mint}) passed with warning - Hold for {hold_duration}s.")
             else:
-                print(f"[{uid}] ⚠️ Proceed with caution {name} ({mint}) - Failed safety checks")
-                print(f"[{uid}] ⚠️ Proceeding with reduced hold time (30s)")
+                print(f"[{uid}] ✅ {name} ({mint}) passed full checks - Sniping now!")
 
             # === Real Buy ===
             try:
