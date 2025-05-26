@@ -8,7 +8,6 @@ httpx.AsyncClient.__init__ = _patched_async_init
 
 import logging
 import random
-import asyncio
 import aiohttp
 from solders.pubkey import Pubkey
 from solana.rpc.async_api import AsyncClient
@@ -36,24 +35,16 @@ BURN_ADDRESSES = {
 
 
 def get_random_client() -> AsyncClient:
-    """
-    Return an AsyncClient connected to a random RPC endpoint
-    to help spread rate‐limits.
-    """
     rpc_url = random.choice(SOLANA_RPC_URLS)
     return AsyncClient(rpc_url)
 
 
 async def is_token_rug(mint_address: str) -> bool:
-    """
-    Check if a token is a honeypot/rug by asking Jupiter if you can swap a small
-    amount (0.01 token units) back into SOL. If outAmount==0, treat as rug.
-    """
     params = {
         "inputMint": mint_address,
         "outputMint": SOL_MINT,
-        "amount": 100_000,      # 0.01 token units (assuming 9 decimals)
-        "slippageBps": 100,       # 1%
+        "amount": 100_000,
+        "slippageBps": 100,
         "onlyDirectRoutes": "false",
         "restrictIntermediateTokens": "true",
     }
@@ -72,15 +63,10 @@ async def is_token_rug(mint_address: str) -> bool:
 
     except Exception as e:
         logger.error(f"[🚫RUG CHECK] Error checking rug status for {mint_address}: {e}")
-        # On error, assume rug to be safe
         return True
 
 
 async def check_freeze_authority(mint_address: str) -> bool:
-    """
-    Query Jupiter’s token info endpoint to see if a freezeAuthority exists.
-    Returns True if freezeAuthority is null (safe), False if present (risky).
-    """
     url = JUPITER_TOKEN_INFO_API.format(mint_address)
     try:
         async with aiohttp.ClientSession() as session:
@@ -97,17 +83,18 @@ async def check_freeze_authority(mint_address: str) -> bool:
 
     except Exception as e:
         logger.error(f"[🚫FREEZE CHECK] Error checking freezeAuthority for {mint_address}: {e}")
-        # On error, treat as “risky”
         return False
 
 
-async def check_lp_ownership(mint_address: str) -> int:
+async def check_token_holder_distribution(mint_address: str) -> int:
     """
-    Fetch the  largest token accounts of the given mint on‐chain.
-    If top holder ∉ burn addresses        → hold 50s
-    Else if top holder >70% of supply     → hold 25s
-    Else (decentralized)                   → hold 60s
-    Return 0 if any failure or no valid data.
+    Analyze token distribution by inspecting the top holders of the token mint.
+    Heuristic:
+        - Top holder is burn address → safe → hold 60s
+        - Top holder > 70% → centralized → hold 25s
+        - Top 3 holders > 90% → risky → hold 25s
+        - Otherwise → decentralized → hold 60s
+    Return 0 on error or empty results.
     """
     try:
         client = get_random_client()
@@ -116,38 +103,36 @@ async def check_lp_ownership(mint_address: str) -> int:
 
         holders = resp.value
         if not holders:
-            logger.warning(f"[❌LP CHECK] No holders found for {mint_address}.")
+            logger.warning(f"[❌DISTRIBUTION CHECK] No holders found for {mint_address}.")
             return 0
 
-        # Sum up total token supply among the fetched accounts:
-        total_tokens = sum(h.ui_amount for h in holders if h.ui_amount)
-        if total_tokens == 0:
-            logger.warning(f"[❌LP CHECK] Total token supply zero for {mint_address}.")
+        top_amounts = [h.ui_amount for h in holders if h.ui_amount]
+        top_addresses = [h.address.to_string() for h in holders]
+        total = sum(top_amounts)
+
+        if total == 0:
+            logger.warning(f"[❌DISTRIBUTION CHECK] Total token supply is 0 for {mint_address}.")
             return 0
 
-        top_holder = holders[0]
-        top_owner = top_holder.address.to_string()
-        top_amount = float(top_holder.ui_amount)
-        top_pct = top_amount / total_tokens
+        top_pct = top_amounts[0] / total
+        top3_pct = sum(top_amounts[:3]) / total
 
-        logger.info(f"[📊LP CHECK] {mint_address} top holder {top_owner} holds {top_pct:.2%}.")
+        logger.info(f"[📊DISTRIBUTION CHECK] {mint_address} Top1={top_pct:.2%}, Top3={top3_pct:.2%}")
+        
 
-        # If top owner isn't a known burn address → hold 50s
-        if top_owner not in BURN_ADDRESSES:
-            logger.info(f"[⚠️LP CHECK] {mint_address} top owner is not burn: {top_owner}. Hold 50s.")
-            return 50
-
-        # If top owner holds >70% → hold 25s
-        if top_pct > 0.70:
-            logger.warning(f"[⚠️LP CHECK] {mint_address} top holder >70% ({top_pct:.2%}). Hold 25s.")
+        if top_pct > 0.4:
+            logger.warning(f"[⚠️DISTRIBUTION CHECK] Top holder owns >40% → Hold 25s")
             return 25
 
-        # Otherwise, safe → hold 60s
-        logger.info(f"[✅LP CHECK] {mint_address} LP ownership is decentralized. Hold 60s.")
+        if top3_pct > 0.9:
+            logger.warning(f"[⚠️DISTRIBUTION CHECK] Top 3 holders own >90% → Hold 10s")
+            return 10
+
+        logger.info(f"[✅DISTRIBUTION CHECK] Holder distribution is decentralized → Hold 60s")
         return 60
 
     except Exception as e:
-        logger.error(f"[🚫LP CHECK] Error checking LP ownership for {mint_address}: {e}")
+        logger.error(f"[🚫DISTRIBUTION CHECK] Error checking distribution for {mint_address}: {e}")
         return 0
 
 
@@ -156,7 +141,7 @@ async def passes_all_checks(mint_address: str) -> int:
     Run all safety checks in sequence:
      1. is_token_rug()
      2. check_freeze_authority()
-     3. check_lp_ownership()
+     3. check_token_holder_distribution()
 
     Returns:
       0  → fail/skip
@@ -165,21 +150,17 @@ async def passes_all_checks(mint_address: str) -> int:
       60 → buy + hold 60s
     """
     try:
-        # 1) Rug/Honeypot check
         if await is_token_rug(mint_address):
             logger.info(f"[❌ALL CHECKS] {mint_address} is a rug.")
             return 0
 
-        # 2) Freeze authority check
-        freeze_ok = await check_freeze_authority(mint_address)
-        if not freeze_ok:
+        if not await check_freeze_authority(mint_address):
             logger.info(f"[❌ALL CHECKS] {mint_address} has freeze authority.")
             return 0
 
-        # 3) LP ownership distribution check
-        hold_time = await check_lp_ownership(mint_address)
+        hold_time = await check_token_holder_distribution(mint_address)
         if hold_time == 0:
-            logger.info(f"[❌ALL CHECKS] {mint_address} failed LP ownership check.")
+            logger.info(f"[❌ALL CHECKS] {mint_address} failed distribution check.")
             return 0
 
         logger.info(f"[✅ALL CHECKS] {mint_address} passed all checks (hold {hold_time}s).")
