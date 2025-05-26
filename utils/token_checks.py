@@ -51,48 +51,75 @@ async def is_token_rug(mint_address: str) -> bool:
 
 
 async def check_freeze_authority(mint_address: str) -> bool:
+    """
+    Returns True if SAFE (no freeze authority). Returns False if:
+      - freeze authority is present, or
+      - account not found, or
+      - rate-limited (429), or
+      - any other error.
+    """
     try:
         client = AsyncClient(RPC_URL)
         mint_pubkey = Pubkey.from_string(mint_address)
         resp = await client.get_account_info(mint_pubkey)
         await client.close()
 
-        data = resp.value.data
-        if not data or data[1] != "base64":
-            logger.error(f"[🚫FREEZE CHECK] Invalid or missing data for {mint_address}")
+        # resp.value can be None if the account doesn't exist
+        if resp.value is None:
+            logger.info(f"[❌FREEZE CHECK] {mint_address} account not found (resp.value is None).")
             return False
 
-        raw = b64decode(data[0])
-        parsed = MINT_LAYOUT.parse(raw)
-        freeze_auth_bytes = parsed.freeze_authority_option and parsed.freeze_authority
-        has_freeze = freeze_auth_bytes is not None
+        # resp.value.data is a list: [base64_data, encoding]
+        account_data = resp.value.data
+        if not account_data or len(account_data) < 2 or account_data[1] != "base64":
+            logger.info(f"[❌FREEZE CHECK] {mint_address} has invalid account data format.")
+            return False
 
-        if not has_freeze:
+        raw = b64decode(account_data[0])
+        parsed = MINT_LAYOUT.parse(raw)
+
+        # parsed.freeze_authority_option == 0 means "no freeze authority"
+        if parsed.freeze_authority_option == 0:
             logger.info(f"[✅FREEZE CHECK] {mint_address} has no freeze authority (safe).")
             return True
 
-        logger.info(f"[❌FREEZE CHECK] {mint_address} has freeze authority: {Pubkey(freeze_auth_bytes)}")
+        # If freeze_authority_option == 1, then freeze_authority is present
+        freeze_auth_bytes = parsed.freeze_authority
+        freeze_auth_pubkey = Pubkey.from_bytes(bytes(freeze_auth_bytes))
+        logger.info(f"[❌FREEZE CHECK] {mint_address} has freeze authority: {freeze_auth_pubkey}")
         return False
+
     except Exception as e:
-        logger.error(f"[🚫FREEZE CHECK] Error checking freeze authority for {mint_address}: {e}")
+        # If the RPC returned a 429 or any other failure, catch it here.
+        err_text = str(e)
+        if "429" in err_text:
+            logger.warning(f"[❌FREEZE CHECK] Rate-limited (429) checking {mint_address}.")
+        else:
+            logger.error(f"[🚫FREEZE CHECK] Unexpected error for {mint_address}: {e}")
         return False
 
 
 async def check_insider_distribution(mint_address: str, max_pct: float = 10.0) -> bool:
+    """
+    Ensure no single wallet holds >= max_pct% of the supply.
+    Returns True if safe, False otherwise.
+    """
     try:
         client = AsyncClient(RPC_URL)
         mint_pubkey = Pubkey.from_string(mint_address)
         resp = await client.get_token_largest_accounts(mint_pubkey)
         await client.close()
 
-        accounts = resp.value
+        # resp.value can be None or empty
+        accounts = getattr(resp, "value", None)
         if not accounts:
-            logger.info(f"[⚠️INSIDER CHECK] {mint_address} has no holders.")
+            logger.info(f"[⚠️INSIDER CHECK] {mint_address} has no holder data (maybe account not yet initialized).")
             return False
 
+        # Sum up all reported balances
         total = sum(int(acc.amount) for acc in accounts)
         if total == 0:
-            logger.info(f"[⚠️INSIDER CHECK] {mint_address} total supply is zero.")
+            logger.info(f"[⚠️INSIDER CHECK] {mint_address} total supply is zero or no distribution info.")
             return False
 
         top_amount = int(accounts[0].amount)
@@ -101,23 +128,36 @@ async def check_insider_distribution(mint_address: str, max_pct: float = 10.0) -
             logger.info(f"[❌INSIDER CHECK] {mint_address} top holder {top_pct:.2f}% >= {max_pct}%.")
             return False
 
-        logger.info(f"[✅INSIDER CHECK] {mint_address} passed with top holder {top_pct:.2f}%.")
+        logger.info(f"[✅INSIDER CHECK] {mint_address} passed (top holder {top_pct:.2f}%).")
         return True
+
     except Exception as e:
-        logger.error(f"[🚫INSIDER CHECK] Error for {mint_address}: {e}")
+        err_text = str(e)
+        if "429" in err_text:
+            logger.warning(f"[❌INSIDER CHECK] Rate-limited (429) checking {mint_address}.")
+        else:
+            logger.error(f"[🚫INSIDER CHECK] Unexpected error for {mint_address}: {e}")
         return False
 
 
 async def check_holder_diversity(
     mint_address: str, top_n: int = 10, max_pct: float = 70.0
 ) -> bool:
+    """
+    Ensure top_n holders together own < max_pct% of total supply.
+    Returns True if safe, False otherwise.
+    """
     try:
         client = AsyncClient(RPC_URL)
         mint_pubkey = Pubkey.from_string(mint_address)
         resp = await client.get_token_largest_accounts(mint_pubkey)
         await client.close()
 
-        accounts = resp.value
+        accounts = getattr(resp, "value", None)
+        if not accounts:
+            logger.info(f"[⚠️DIVERSITY CHECK] {mint_address} has no holder data.")
+            return False
+
         total = sum(int(acc.amount) for acc in accounts)
         if total == 0 or len(accounts) < top_n:
             logger.info(f"[⚠️DIVERSITY CHECK] {mint_address} insufficient data or total zero.")
@@ -129,10 +169,15 @@ async def check_holder_diversity(
             logger.info(f"[❌DIVERSITY CHECK] {mint_address} top {top_n} hold {top_pct:.2f}% >= {max_pct}%.")
             return False
 
-        logger.info(f"[✅DIVERSITY CHECK] {mint_address} passed with top {top_n} holding {top_pct:.2f}%.")
+        logger.info(f"[✅DIVERSITY CHECK] {mint_address} passed (top {top_n} hold {top_pct:.2f}%).")
         return True
+
     except Exception as e:
-        logger.error(f"[🚫DIVERSITY CHECK] Error for {mint_address}: {e}")
+        err_text = str(e)
+        if "429" in err_text:
+            logger.warning(f"[❌DIVERSITY CHECK] Rate-limited (429) checking {mint_address}.")
+        else:
+            logger.error(f"[🚫DIVERSITY CHECK] Unexpected error for {mint_address}: {e}")
         return False
 
 
