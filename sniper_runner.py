@@ -38,12 +38,14 @@ async def _snipe_loop(uid: int, session):
             seen_tokens.add(mint)
 
             # === Safety checks ===
+            passed = await passes_all_checks(mint)
+            hold_duration = 60 if passed else 30
 
-            if await passes_all_checks(mint):
+            if passed:
                 print(f"[{uid}] ✅ PASSED: {name} ({mint}) - Sniping now...")
-                   # buy_token_real(...)
             else:
                 print(f"[{uid}] ❌ Skipped {name} ({mint}) - Failed safety checks")
+                print(f"[{uid}] ⚠️ Proceeding anyway with reduced hold time (30s)")
 
             # === Real Buy ===
             try:
@@ -54,16 +56,16 @@ async def _snipe_loop(uid: int, session):
                 continue
 
             # Schedule auto-sell in background
-            async def _auto_sell():
-                print(f"[{uid}] ⏳ Waiting 60s to auto-sell {mint}...")
-                await asyncio.sleep(60)
+            async def _auto_sell(mint, duration):
+                print(f"[{uid}] ⏳ Waiting {duration}s to auto-sell {mint}...")
+                await asyncio.sleep(duration)
                 try:
                     await sell_token_real(session.private_key, mint)
                     print(f"[{uid}] 🔁 Auto-sold {mint}")
                 except Exception as e:
                     print(f"[{uid}] ❌ Auto-sell failed {mint}: {e}")
 
-            asyncio.create_task(_auto_sell())
+            asyncio.create_task(_auto_sell(mint, hold_duration))
 
         await asyncio.sleep(1)
 
