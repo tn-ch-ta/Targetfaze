@@ -54,69 +54,84 @@ async def check_freeze_authority(mint_address: str) -> bool:
         return False
 
 # ── Liquidity + Market Cap Check (Pump.fun) ───────────────────────────────────
-async def check_pumpfun_liquidity_and_marketcap(mint_address: str) -> bool:
+async def check_pumpfun_liquidity_and_marketcap(mint_address: str) -> int:
+    """
+    Calls Pump.fun's /coins/latest endpoint. Handles both single-object and list responses.
+    Then:
+      • Requires real_sol_reserves ≥ 1 SOL
+      • If market_cap ≥ $50 → return 60 (hold 60s)
+      • Elif market_cap ≥ $30 → return 20 (hold 20s)
+      • Else → return 0 (skip)
+
+    On any error or unexpected format → return 0.
+    """
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(PUMP_FUN_API, timeout=7) as resp:
                 data = await resp.json()
 
-        # Handle case where a single token is returned
+        # Handle case where a single token object is returned
         if isinstance(data, dict) and data.get("mint") == mint_address:
             token = data
-        # Handle case where a list of tokens is returned (older behavior)
+            
+        # Handle case where a token list is returned
         elif isinstance(data, list):
             token = next((t for t in data if t.get("mint") == mint_address), None)
             if token is None:
                 logger.warning(f"[❌PUMP.FUN] Token {mint_address} not found in Pump.fun latest list.")
-                return False
+                return 0
         else:
-            logger.error(f"[🚫PUMP.FUN FORMAT] Unexpected response format from Pump.fun")
-            return False
+            logger.error(f"[🚫PUMP.FUN FORMAT] Unexpected response format from Pump.fun API.")
+            return 0
 
+        # Extract reserves + market cap
         reserve_lamports = float(token.get("real_sol_reserves", 0))
         reserve_sol = reserve_lamports / 1e9
         market_cap = float(token.get("market_cap", 0))
 
+        # 1) Liquidity check: require ≥ 1 SOL in reserves
         if reserve_sol < 1:
             logger.warning(f"[❌LIQUIDITY CHECK] {mint_address} has only {reserve_sol:.4f} SOL (< 1 SOL).")
-            return False
+            return 0
         else:
-            logger.info(f"[✅LIQUIDITY CHECK] {mint_address} has {reserve_sol:.4f} SOL.")
+            logger.info(f"[✅LIQUIDITY CHECK] {mint_address} has {reserve_sol:.4f} SOL in reserve.")
 
-        if market_cap < 30:
+        # 2) Market cap tiered hold time:
+        if market_cap >= 50:
+            logger.info(f"[✅MARKET CAP CHECK] {mint_address} has market cap ${market_cap:.2f} (≥ $50) → hold 60s.")
+            return 60
+        elif market_cap >= 30:
+            logger.info(f"[✅MARKET CAP CHECK] {mint_address} has market cap ${market_cap:.2f} (≥ $30) → hold 20s.")
+            return 20
+        else:
             logger.warning(f"[❌MARKET CAP CHECK] {mint_address} has market cap ${market_cap:.2f} (< $30).")
-            return False
-        else:
-            logger.info(f"[✅MARKET CAP CHECK] {mint_address} has market cap ${market_cap:.2f}.")
-
-        return True
+            return 0
 
     except Exception as e:
         logger.error(f"[🚫PUMP.FUN CHECK] Error checking liquidity/market cap for {mint_address}: {e}")
-        return False
+        return 0
 
 # ── Final Check Sequence ───────────────────────────────────────────────────────
 async def passes_all_checks(mint_address: str) -> int:
     """
-    Run safety checks:
-     1. Freeze authority check (Jupiter)
-     2. real_sol_reserves ≥ 1 SOL (Pump.fun)
-     3. market_cap ≥ $30 (Pump.fun)
+    Run safety checks in order:
+      1. check_freeze_authority(mint_address)
+      2. check_pumpfun_liquidity_and_marketcap(mint_address)
 
-    If all pass → return 60s hold time
-    Else → return 0
+    If both pass, return the hold duration (20 or 60). Otherwise return 0.
     """
     try:
         if not await check_freeze_authority(mint_address):
             logger.info(f"[❌ALL CHECKS] {mint_address} failed freeze authority check.")
             return 0
 
-        if not await check_pumpfun_liquidity_and_marketcap(mint_address):
+        hold_time = await check_pumpfun_liquidity_and_marketcap(mint_address)
+        if hold_time == 0:
             logger.info(f"[❌ALL CHECKS] {mint_address} failed liquidity/market cap check.")
             return 0
 
-        logger.info(f"[✅ALL CHECKS] {mint_address} passed all checks (hold 60s).")
-        return 60
+        logger.info(f"[✅ALL CHECKS] {mint_address} passed all checks (hold {hold_time}s).")
+        return hold_time
 
     except Exception as e:
         logger.error(f"[🚫ALL CHECKS] Unexpected error for {mint_address}: {e}")
