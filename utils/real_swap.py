@@ -19,7 +19,6 @@ from solders.hash import Hash
 from solders.signature import Signature
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.providers.async_http import AsyncHTTPProvider
-from solders.rpc.commitment import Confirmed
 import json
 import logging
 
@@ -195,7 +194,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         print(f"[TXN] Sent:      {sig_str}")
 
         # Confirm the transaction
-        await client.confirm_transaction(sig_str, commitment=Confirmed)
+        await client.confirm_transaction(sig_str, commitment="confirmed")
         print(f"[TXN] Confirmed: {sig_str}")
         return sig_str
 
