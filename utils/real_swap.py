@@ -19,7 +19,7 @@ from solders.hash import Hash
 from solders.signature import Signature
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.providers.async_http import AsyncHTTPProvider
-from solders.rpc.config import TxOpts
+from solana.rpc.types import TxOpts
 from solders.rpc.commitment import Confirmed
 import json
 import logging
