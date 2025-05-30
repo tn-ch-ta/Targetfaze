@@ -2,10 +2,12 @@
 
 import asyncio
 import aiohttp
+import logging
 from utils.token_checks import passes_all_checks
 from utils.real_swap import buy_token_real, sell_token_real
 from utils.sanity import normalize_mint_address
 
+logger = logging.getLogger("sniper_runner")
 active_tasks: dict[int, asyncio.Task] = {}
 seen_tokens: set[str] = set()
 
@@ -15,14 +17,14 @@ async def fetch_new_pumpfun_tokens() -> list[dict]:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=5) as resp:
                 data = await resp.json()
-        # Pump.fun returns a single token dict
+        # This endpoint usually returns a single dict with "mint", not a list.
         if isinstance(data, dict) and "mint" in data:
-            print(f"[DEBUG] Fetched 1 token from Pump.fun")
+            logger.debug("[DEBUG] Fetched 1 token from Pump.fun")
             return [data]
-        print("[DEBUG] Fetched 0 tokens from Pump.fun (unexpected format)")
+        logger.warning("[DEBUG] Unexpected format from Pump.fun; got data: %r", data)
         return []
     except Exception as e:
-        print(f"[ERROR] Failed to fetch tokens: {e}")
+        logger.error(f"[ERROR] Failed to fetch tokens from Pump.fun: {e}")
         return []
 
 async def _snipe_loop(uid: int, session):
