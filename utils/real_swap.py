@@ -106,6 +106,9 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
 # ──────────────────────────────────────────────────────────────────────────────
 # Build a real transaction from the quoteResponse and send it
 # ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# 1. Get swap transaction from Jupiter and decode the Base64 string
+# ──────────────────────────────────────────────────────────────────────────────
 async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> bytes:
     # 1) Log boolean fields for debugging
     log_bool_fields(quote_response)
@@ -146,19 +149,17 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
     if not tx_raw:
         raise Exception(f"Jupiter swap failed, no transaction returned: {json_data}")
 
-    # Jupiter returns the transaction as a Base64‐encoded string (“AQAAAAAA…”).
+    # Decode swapTransaction (Base64 string or list of ints)
     if isinstance(tx_raw, str):
         print(f"[DEBUG] swapTransaction is a Base64 string (len={len(tx_raw)})")
         try:
-            raw_bytes = base64.b64decode(tx_raw)
+            return base64.b64decode(tx_raw)
         except Exception as e:
             snippet = tx_raw[:10] + ("..." if len(tx_raw) > 10 else "")
             raise Exception(f"[ERROR] base64.b64decode failed on swapTransaction (“{snippet}”): {e}")
-        return raw_bytes
 
-    # If it were ever to return a list of ints (unlikely), convert to bytes
     elif isinstance(tx_raw, list):
-        print(f"[DEBUG] swapTransaction is a raw byte‐array (list of ints, len={len(tx_raw)})")
+        print(f"[DEBUG] swapTransaction is a list of ints (len={len(tx_raw)})")
         try:
             return bytes(tx_raw)
         except Exception as e:
@@ -166,25 +167,32 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
     else:
         raise Exception(f"[ERROR] Unexpected swapTransaction format: {type(tx_raw)}")
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# 2. Sign and send the decoded versioned transaction (raw_tx_bytes)
+# ──────────────────────────────────────────────────────────────────────────────
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
-    tx = VersionedTransaction.from_bytes(base64.b64decode(get_swap_transaction))
-    tx.sign([keypair])
-    serialized = tx.serialize()
-    print(f"[DEBUG] Signed transaction size: {len(serialized)} bytes")
+    try:
+        tx = VersionedTransaction.from_bytes(raw_tx_bytes)
+        tx.sign([keypair])
+        serialized = tx.serialize()
+        print(f"[DEBUG] Signed transaction size: {len(serialized)} bytes")
 
-    sig_resp = await client.send_raw_transaction(
-        serialized,
-        opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed)
-    )
-    sig = sig_resp.value
-    print(f"[TXN] Sent:      {sig}")
-    await client.confirm_transaction(sig, commitment=Confirmed)
-    print(f"[TXN] Confirmed: {sig}")
-    return sig
+        sig_resp = await client.send_raw_transaction(
+            serialized,
+            opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed)
+        )
+        sig = sig_resp.value
+        print(f"[TXN] Sent:      {sig}")
+
+        await client.confirm_transaction(sig, commitment=Confirmed)
+        print(f"[TXN] Confirmed: {sig}")
+        return sig
+
+    except Exception as e:
+        raise Exception(f"[ERROR] Final send_transaction (buy) failed: {e}")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # High‐level helper to buy a token with real Jupiter swap
@@ -195,10 +203,10 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     lamports = int(sol_amount * 1e9)
 
     quote_response = await get_swap_route(SOL_MINT, mint, lamports)
-    tx_bytes       = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes       = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        sig = await send_transaction(tx_bytes, kp)
+        sig = await send_transaction(raw_tx_bytes, kp)
     except Exception as e:
         raise Exception(f"[ERROR] Final send_transaction (buy) failed: {e}")
 
@@ -230,10 +238,10 @@ async def sell_token_real(private_key: str, mint: str):
         return
 
     quote_response = await get_swap_route(mint, SOL_MINT, balance)
-    tx_bytes       = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes       = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        sig = await send_transaction(tx_bytes, kp)
+        sig = await send_transaction(raw_tx_bytes, kp)
     except Exception as e:
         raise Exception(f"[ERROR] Final send_transaction (sell) failed: {e}")
 
