@@ -19,7 +19,6 @@ from solders.hash import Hash
 from solders.signature import Signature
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.providers.async_http import AsyncHTTPProvider
-from solders.rpc.types import TxOpts
 from solders.rpc.commitment import Confirmed
 import json
 import logging
@@ -187,10 +186,10 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         serialized = signed_tx.serialize()
         print(f"[DEBUG] Signed transaction size: {len(serialized)} bytes")
 
-        # Send it
+        # Send it (opts = dict, no TxOpts)
         sig_resp = await client.send_raw_transaction(
             serialized,
-            opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed)
+            opts={"skip_preflight": True, "preflight_commitment": "confirmed"}
         )
         sig_str = sig_resp.value
         print(f"[TXN] Sent:      {sig_str}")
