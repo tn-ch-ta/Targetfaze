@@ -201,14 +201,36 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     keypair:     your payer's Keypair (solders)
     """
     try:
+        # ------------------------------------------------------------
+        # DEBUG: Check incoming types immediately
+        # ------------------------------------------------------------
+        print(f"[DEBUG] send_transaction called with:")
+        print(f"         raw_tx_bytes type  = {type(raw_tx_bytes)}")
+        print(f"         keypair      type  = {type(keypair)} / pubkey={keypair.pubkey()}")
+        if not isinstance(raw_tx_bytes, (bytes, bytearray)):
+            raise Exception(f"[ERROR] raw_tx_bytes is not bytes/bytearray!  Got: {type(raw_tx_bytes)}")
+
         # 1) Deserialize into a solders VersionedTransaction
         tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
+
+        # ------------------------------------------------------------
+        # DEBUG: Inspect the transaction’s account_keys and signatures
+        # ------------------------------------------------------------
+        print(f"[DEBUG] Deserialized VersionedTransaction:")
+        print(f"         message.account_keys (len={len(tx.message.account_keys)}):")
+        for i, acct in enumerate(tx.message.account_keys):
+            print(f"           slot {i:>2}: {acct}")
+
+        print(f"         original signatures (len={len(tx.signatures)}):")
+        for i, s in enumerate(tx.signatures):
+            print(f"           slot {i:>2}: {s}")
 
         # 2) Extract the message (MessageV0) as raw bytes
         msg_bytes = bytes(tx.message)
 
-        # 3) Sign those message bytes with your solders Keypair -> solders.Signature
+        # 3) Sign those message bytes with your solders Keypair → solders.Signature
         sig: Signature = keypair.sign_message(msg_bytes)
+        print(f"[DEBUG] Created new signature: {sig}")
 
         # 4) Find the signer index in tx.message.account_keys
         signer_index = None
@@ -219,30 +241,42 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
 
         if signer_index is None:
             raise Exception(
-                f"[ERROR] Could not find public key {keypair.pubkey()} in account_keys"
+                f"[ERROR] Could not find public key {keypair.pubkey()} in account_keys!"
             )
+        print(f"[DEBUG] My pubkey is at account_keys index = {signer_index}")
 
         # 5) Get the existing signature slots (Vec<Signature>) and replace the slot at signer_index
         orig_sigs = list(tx.signatures)
+        # (Normally solders.from_bytes(...) already gives you a Vec<Signature> of correct length,
+        #  but we double-check just in case.)
         if len(orig_sigs) < len(tx.signatures):
-            # pad if necessary (usually solders.from_bytes did this)
             orig_sigs += [Signature.default()] * (len(tx.signatures) - len(orig_sigs))
 
+        print(f"[DEBUG] Before replacement, signature slots were:")
+        for i, s in enumerate(orig_sigs):
+            print(f"           slot {i:>2}: {s}")
+
+        # Replace only MY slot with the newly computed signature:
         orig_sigs[signer_index] = sig
+
+        print(f"[DEBUG] After replacement, signature slots are:")
+        for i, s in enumerate(orig_sigs):
+            print(f"           slot {i:>2}: {s}")
 
         # 6) Reconstruct a new VersionedTransaction with updated signatures
         signed_tx = VersionedTransaction(tx.message, orig_sigs)
 
         # 7) Serialize into bytes
         serialized_bytes = bytes(signed_tx)
-        print(f"[DEBUG] Signed transaction size: {len(serialized_bytes)} bytes")
+        print(f"[DEBUG] Signed transaction serialized size: {len(serialized_bytes)} bytes")
 
-        # 8) Submit via JSON-RPC
+        # 8) Submit via JSON-RPC (never send a Keypair or Signature here!)
         sig_str = await _send_raw_via_rpc(serialized_bytes)
         print(f"[TXN] Sent & confirmed: {sig_str}")
         return sig_str
 
     except Exception as e:
+        # If anything at all goes wrong, we get the full traceback here.
         raise Exception(f"[ERROR] Final send_transaction failed: {e}")
 
 # ──────────────────────────────────────────────────────────────────────────────
