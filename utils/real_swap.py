@@ -176,28 +176,45 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 # ──────────────────────────────────────────────────────────────────────────────
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     try:
-        tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
+        # 1. Deserialize transaction
+        tx = VersionedTransaction.from_bytes(raw_tx_bytes)
 
+        # 2. Find signer index by matching keypair pubkey to message.account_keys
+        pubkey_bytes = bytes(keypair.pubkey())
+        try:
+            signer_index = next(
+                i for i, acct in enumerate(tx.message.account_keys) if bytes(acct) == pubkey_bytes
+            )
+        except StopIteration:
+            raise Exception("Keypair public key not found in transaction's account keys")
+
+        # 3. Prepare message bytes for signing
         msg_bytes = bytes(tx.message)
 
-        sig = keypair.sign_message(msg_bytes)
+        # 4. Sign message bytes with keypair
+        signature = keypair.sign_message(msg_bytes)
 
-        # Replace the signature at index 0 (or correct index if multiple signers)
-        signatures = list(tx.signatures)
-        signatures[0] = sig
+        # 5. Create mutable copy of signatures list and insert signature at signer index
+        sigs = list(tx.signatures)
+        # Replace the signature at signer index with yours
+        sigs[signer_index] = signature
 
-        signed_tx = VersionedTransaction(tx.message, signatures)
+        # 6. Build new signed transaction
+        signed_tx = VersionedTransaction(tx.message, sigs)
 
+        # 7. Serialize signed transaction
         serialized = bytes(signed_tx)
         print(f"[DEBUG] Signed transaction size: {len(serialized)} bytes")
 
+        # 8. Send raw transaction bytes
         sig_resp = await client.send_raw_transaction(
             serialized,
             opts={"skip_preflight": True, "preflight_commitment": "confirmed"}
         )
         sig_str = sig_resp.value
-        print(f"[TXN] Sent:      {sig_str}")
+        print(f"[TXN] Sent: {sig_str}")
 
+        # 9. Confirm transaction
         await client.confirm_transaction(sig_str, commitment="confirmed")
         print(f"[TXN] Confirmed: {sig_str}")
 
