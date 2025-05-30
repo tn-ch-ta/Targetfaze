@@ -9,6 +9,7 @@ def _patched_async_init(self, *args, proxy=None, **kwargs):
 httpx.AsyncClient.__init__ = _patched_async_init
 # ──────────────────────────────────────────────────────────────────────────────
 
+import base58
 import base64
 import aiohttp
 from solders.keypair import Keypair
