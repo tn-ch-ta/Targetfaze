@@ -67,10 +67,8 @@ def ensure_valid_base58(s: str):
     This catches invalid characters like 'O', '0', 'I', 'l', etc.
     """
     try:
-        # Attempt to decode; we don't actually need the bytes here, just validation
         _ = base58.b58decode(s)
     except Exception as e:
-        # Show only the first 10 chars in logs to avoid printing massive strings
         snippet = s[:10] + ("..." if len(s) > 10 else "")
         raise Exception(f"Not valid base58 (“{snippet}”): {e}")
 
@@ -85,7 +83,7 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
     try:
         raw_bytes = base58.b58decode(private_key)
     except Exception as e:
-        # This should never happen if ensure_valid_base58 passed, but guard anyway
+        # This should not happen if ensure_valid_base58 passed, but guard anyway
         raise Exception(f"[ERROR] base58.b58decode failed on private_key: {e}")
     try:
         kp = Keypair.from_bytes(raw_bytes)
@@ -160,24 +158,35 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
     print(f"[DEBUG] Swap API response:\n{json.dumps(json_data, indent=2)}")
 
-    tx_b58 = json_data.get("swapTransaction")
-    if not tx_b58:
+    tx_raw = json_data.get("swapTransaction")
+    if not tx_raw:
         raise Exception(f"Jupiter swap failed, no transaction returned: {json_data}")
 
-    # 3) Validate that the returned string is valid base58
-    print(f"[DEBUG] Received swapTransaction base58: {tx_b58[:20]}… (len={len(tx_b58)})")
-    try:
-        ensure_valid_base58(tx_b58)
-    except Exception as e:
-        raise Exception(f"[ERROR] swapTransaction is not valid base58: {e}")
+    # Jupiter may return either:
+    #  (a) a Base58 string, or
+    #  (b) an array of integers (raw bytes) in JSON.
+    if isinstance(tx_raw, str):
+        print(f"[DEBUG] swapTransaction is a Base58 string (len={len(tx_raw)})")
+        # Validate Base58 before decoding
+        try:
+            ensure_valid_base58(tx_raw)
+        except Exception as e:
+            raise Exception(f"[ERROR] swapTransaction is not valid Base58: {e}")
+        try:
+            return base58.b58decode(tx_raw)
+        except Exception as e:
+            raise Exception(f"[ERROR] base58.b58decode failed on swapTransaction: {e}")
 
-    # 4) Finally decode into bytes and return
-    try:
-        raw_bytes = base58.b58decode(tx_b58)
-    except Exception as e:
-        raise Exception(f"[ERROR] base58.b58decode failed on swapTransaction: {e}")
+    elif isinstance(tx_raw, list):
+        # Already raw bytes array, just convert list[int] → bytes
+        print(f"[DEBUG] swapTransaction is a raw byte-array (list of ints, len={len(tx_raw)})")
+        try:
+            return bytes(tx_raw)
+        except Exception as e:
+            raise Exception(f"[ERROR] Converting swapTransaction list[int] → bytes failed: {e}")
 
-    return raw_bytes
+    else:
+        raise Exception(f"[ERROR] Unexpected swapTransaction format: {type(tx_raw)}")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Send a signed, versioned transaction to Solana mainnet
@@ -199,66 +208,51 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     return sig
 
 # ──────────────────────────────────────────────────────────────────────────────
-# High‐level helper to buy a token with real Jupiter swap
+# High-level helper to buy a token with real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
 async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     print(f"[BUY] Buying {mint} for {sol_amount} SOL")
-    # 1) Validate and load Keypair
     kp = get_keypair_from_base58(private_key)
-
-    # 2) Compute lamports
     lamports = int(sol_amount * 1e9)
 
-    # 3) Fetch a quote from Jupiter
     quote_response = await get_swap_route(SOL_MINT, mint, lamports)
-
-    # 4) Build the raw transaction
     tx_bytes       = await get_swap_transaction(quote_response, kp.pubkey())
 
-    # 5) Send it on‐chain
     try:
-        sig            = await send_transaction(tx_bytes, kp)
+        sig = await send_transaction(tx_bytes, kp)
     except Exception as e:
-        raise Exception(f"[ERROR] Final send_transaction failed: {e}")
+        raise Exception(f"[ERROR] Final send_transaction (buy) failed: {e}")
 
     print(f"[BUY] Completed buy of {mint}, signature: {sig}")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# High‐level helper to sell (98% of balance) using real Jupiter swap
+# High-level helper to sell (98% of balance) using real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
 async def sell_token_real(private_key: str, mint: str):
     from spl.token.instructions import get_associated_token_address
 
     print(f"[SELL] Selling all of {mint}")
-    # 1) Validate and load Keypair
     kp = get_keypair_from_base58(private_key)
 
-    # 2) Derive the ATA (associated token account) for this mint & user
     try:
         ata = get_associated_token_address(kp.pubkey(), Pubkey.from_string(mint))
     except Exception as e:
         raise Exception(f"[ERROR] Could not derive ATA for {mint}: {e}")
 
-    # 3) Fetch current token balance
     balance = await get_token_balance(ata)
     print(f"[SELL] Token account {ata}, balance = {balance}")
     if balance == 0:
         print("[SELL] Nothing to sell.")
         return
-
-    # 4) Compute 98% of the balance
+    
     sell_amount = int(balance * 0.98)
     if sell_amount == 0:
         print("[SELL] 98% of balance is 0, skipping.")
         return
 
-    # 5) Get a quote: token → SOL
     quote_response = await get_swap_route(mint, SOL_MINT, balance)
-
-    # 6) Build the transaction
     tx_bytes       = await get_swap_transaction(quote_response, kp.pubkey())
 
-    # 7) Send it
     try:
         sig = await send_transaction(tx_bytes, kp)
     except Exception as e:
