@@ -5,7 +5,6 @@ import aiohttp
 import logging
 from utils.token_checks import passes_all_checks
 from utils.real_swap import buy_token_real, sell_token_real
-from utils.sanity import normalize_mint_address
 
 logger = logging.getLogger("sniper_runner")
 active_tasks: dict[int, asyncio.Task] = {}
@@ -32,14 +31,8 @@ async def _snipe_loop(uid: int, session):
     while session.sniping:
         tokens = await fetch_new_pumpfun_tokens()
         for token in tokens:
-            raw_mint = token.get("mint", "")
-            name     = token.get("name", "Unnamed")
-
-            # 1) Normalize & validate the mint string
-            mint = normalize_mint_address(raw_mint)
-            if not mint:
-                logger.warning(f"[{uid}] 💔 Invalid mint returned by Pump.fun: {raw_mint!r}; skipping.")
-                continue
+            mint = token.get("mint")
+            name = token.get("name", "Unnamed")
 
             # 2) Skip if we've already seen this exact "mint"
             if mint in seen_tokens:
