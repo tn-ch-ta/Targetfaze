@@ -176,23 +176,21 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 # ──────────────────────────────────────────────────────────────────────────────
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     try:
-        # Deserialize raw bytes into VersionedTransaction
         tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
 
-        # Serialize message properly (MessageV0 -> bytes)
-        msg_bytes = bytes(tx.message)  # <-- fixed here
+        msg_bytes = bytes(tx.message)
 
-        # Sign the serialized message bytes with keypair
         sig = keypair.sign_message(msg_bytes)
 
-        # Create new VersionedTransaction with message and signatures list
-        signed_tx = VersionedTransaction(tx.message, [sig])
+        # Replace the signature at index 0 (or correct index if multiple signers)
+        signatures = list(tx.signatures)
+        signatures[0] = sig
 
-        # Serialize the signed transaction (bytes, not .serialize())
-        serialized = bytes(signed_tx)  # <-- fixed here
+        signed_tx = VersionedTransaction(tx.message, signatures)
+
+        serialized = bytes(signed_tx)
         print(f"[DEBUG] Signed transaction size: {len(serialized)} bytes")
 
-        # Send the signed serialized transaction to Solana cluster
         sig_resp = await client.send_raw_transaction(
             serialized,
             opts={"skip_preflight": True, "preflight_commitment": "confirmed"}
@@ -200,7 +198,6 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         sig_str = sig_resp.value
         print(f"[TXN] Sent:      {sig_str}")
 
-        # Confirm transaction finalized
         await client.confirm_transaction(sig_str, commitment="confirmed")
         print(f"[TXN] Confirmed: {sig_str}")
 
