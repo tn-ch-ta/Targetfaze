@@ -15,10 +15,12 @@ import aiohttp
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
+from solders.hash import Hash
+from solders.signature import Signature
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.providers.async_http import AsyncHTTPProvider
-from solana.rpc.commitment import Confirmed
-from solana.rpc.types import TxOpts
+from solders.rpc.config import TxOpts
+from solders.rpc.commitment import Confirmed
 import json
 import logging
 
@@ -175,25 +177,31 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 # ──────────────────────────────────────────────────────────────────────────────
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     try:
-        tx = VersionedTransaction.from_bytes(raw_tx_bytes)
-        tx.sign([keypair])
-        serialized = tx.serialize()
+        # Decode the base64-encoded versioned transaction from Jupiter
+        tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
+
+        # Sign the transaction message manually using solders
+        sig = keypair.sign_message(tx.message.serialize())
+        signed_tx = VersionedTransaction(tx.message, [sig])
+
+        serialized = signed_tx.serialize()
         print(f"[DEBUG] Signed transaction size: {len(serialized)} bytes")
 
+        # Send it
         sig_resp = await client.send_raw_transaction(
             serialized,
             opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed)
         )
-        sig = sig_resp.value
-        print(f"[TXN] Sent:      {sig}")
+        sig_str = sig_resp.value
+        print(f"[TXN] Sent:      {sig_str}")
 
-        await client.confirm_transaction(sig, commitment=Confirmed)
-        print(f"[TXN] Confirmed: {sig}")
-        return sig
+        # Confirm the transaction
+        await client.confirm_transaction(sig_str, commitment=Confirmed)
+        print(f"[TXN] Confirmed: {sig_str}")
+        return sig_str
 
     except Exception as e:
         raise Exception(f"[ERROR] Final send_transaction (buy) failed: {e}")
-
 # ──────────────────────────────────────────────────────────────────────────────
 # High‐level helper to buy a token with real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
