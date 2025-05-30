@@ -4,6 +4,7 @@ import asyncio
 import aiohttp
 from utils.token_checks import passes_all_checks
 from utils.real_swap import buy_token_real, sell_token_real
+from utils.sanity import normalize_mint_address
 
 active_tasks: dict[int, asyncio.Task] = {}
 seen_tokens: set[str] = set()
@@ -25,54 +26,57 @@ async def fetch_new_pumpfun_tokens() -> list[dict]:
         return []
 
 async def _snipe_loop(uid: int, session):
-    print(f"[{uid}] ▶️ Started async sniping session")
+    logger.info(f"[{uid}] ▶️ Started async sniping session")
     while session.sniping:
         tokens = await fetch_new_pumpfun_tokens()
         for token in tokens:
-            mint = token.get("mint")
-            name = token.get("name", "Unnamed")
+            raw_mint = token.get("mint", "")
+            name     = token.get("name", "Unnamed")
 
+            # 1) Normalize & validate the mint string
+            mint = normalize_mint_address(raw_mint)
+            if not mint:
+                logger.warning(f"[{uid}] 💔 Invalid mint returned by Pump.fun: {raw_mint!r}; skipping.")
+                continue
+
+            # 2) Skip if we've already seen this exact "mint"
             if mint in seen_tokens:
-                print(f"[{uid}] 🔁 Skipping already seen: {mint}")
+                logger.debug(f"[{uid}] 🔁 Skipping already seen: {mint}")
                 continue
             seen_tokens.add(mint)
 
-            # === Safety checks ===
+            # 3) Run our safety checks (freeze + liquidity/marketcap)
             hold_duration = await passes_all_checks(mint)
             if hold_duration == 0:
-                print(f"[{uid}] ❌ Skipping {name} ({mint}) - Failed all safety checks.")
+                logger.info(f"[{uid}] ❌ {name} ({mint}) failed safety checks; skipping.")
                 continue
-            elif hold_duration < 60:
-                print(f"[{uid}] ⚠️ {name} ({mint}) passed with warning - Hold for {hold_duration}s.")
-            else:
-                print(f"[{uid}] ✅ {name} ({mint}) passed full checks - Sniping now!")
 
-            # === Real Buy ===
+            logger.info(f"[{uid}] ✅ {name} ({mint}) passed safety checks → buy & hold {hold_duration}s")
+
+            # 4) Attempt the real Jupiter buy
             try:
                 await buy_token_real(session.private_key, mint, session.sol_amount)
-                print(f"[{uid}] ✅ Bought {mint} @ {session.sol_amount} SOL")
+                logger.info(f"[{uid}] ✅ Bought {mint} @{session.sol_amount} SOL")
             except Exception as e:
-                print(f"[{uid}] ❌ Buy failed {mint}: {e}")
+                logger.error(f"[{uid}] ❌ Buy failed {mint}: {e}")
                 continue
 
-            # Schedule auto-sell in background
-            async def _auto_sell(mint, duration):
-                print(f"[{uid}] ⏳ Waiting {duration}s to auto-sell {mint}...")
-                await asyncio.sleep(duration)
+            # 5) Spawn a background task to auto‐sell 98% after `hold_duration` seconds
+            async def _auto_sell(m: str, dur: int):
+                logger.info(f"[{uid}] ⏳ Waiting {dur}s to auto‐sell 98% of {m}…")
+                await asyncio.sleep(dur)
                 try:
-                    await sell_token_real(session.private_key, mint)
-                    print(f"[{uid}] 🔁 Auto-sold {mint}")
+                    await sell_token_real(session.private_key, m)
+                    logger.info(f"[{uid}] 🔁 Auto‐sold 98% of {m}")
                 except Exception as e:
-                    print(f"[{uid}] ❌ Auto-sell failed {mint}: {e}")
+                    logger.error(f"[{uid}] ❌ Auto‐sell failed {m}: {e}")
 
             asyncio.create_task(_auto_sell(mint, hold_duration))
 
         await asyncio.sleep(1)
-
+        
 async def start_sniping_for_user(uid: int, session):
-    # cancel existing if present
     await stop_sniping_for_user(uid)
-
     session.sniping = True
     task = asyncio.create_task(_snipe_loop(uid, session))
     active_tasks[uid] = task
@@ -80,7 +84,7 @@ async def start_sniping_for_user(uid: int, session):
 async def stop_sniping_for_user(uid: int):
     task = active_tasks.get(uid)
     if task:
-        print(f"[{uid}] 🛑 Cancelling sniping session")
+        logger.info(f"[{uid}] 🛑 Cancelling sniping session")
         task.cancel()
         try:
             await task
