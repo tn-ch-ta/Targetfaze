@@ -15,11 +15,7 @@ import aiohttp
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
-from solders.message import Message, MessageV0
-from solders.hash import Hash
 from solders.signature import Signature
-from solana.rpc.async_api import AsyncClient
-from solana.rpc.providers.async_http import AsyncHTTPProvider
 import json
 import logging
 
@@ -57,15 +53,11 @@ SOL_MINT           = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API  = "https://lite-api.jup.ag/swap/v1/quote"
 JUPITER_SWAP_API   = "https://lite-api.jup.ag/swap/v1/swap"
 
-# Shared AsyncClient (re-used for all transactions)
-client = AsyncClient(RPC_URL)
-client._provider = AsyncHTTPProvider(RPC_URL, timeout=30)
-
 # ──────────────────────────────────────────────────────────────────────────────
-# Convert a Base58‐encoded private key into a Keypair, with validation
+# Convert a Base58-encoded private key into a Keypair, with validation
 # ──────────────────────────────────────────────────────────────────────────────
 def get_keypair_from_base58(private_key: str) -> Keypair:
-    # We assume the input is valid Base58‐encoded 64‐byte keypair
+    # We assume the input is valid Base58-encoded 64-byte keypair
     try:
         raw_bytes = base58.b58decode(private_key)
     except Exception as e:
@@ -105,10 +97,7 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
     return json_data
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Build a real transaction from the quoteResponse and send it
-# ──────────────────────────────────────────────────────────────────────────────
-# ──────────────────────────────────────────────────────────────────────────────
-# 1. Get swap transaction from Jupiter and decode the Base64 string
+# Build a real transaction from the quoteResponse and decode into raw bytes
 # ──────────────────────────────────────────────────────────────────────────────
 async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> bytes:
     # 1) Log boolean fields for debugging
@@ -150,7 +139,8 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
     if not tx_raw:
         raise Exception(f"Jupiter swap failed, no transaction returned: {json_data}")
 
-    # Decode swapTransaction (Base64 string or list of ints)
+    # Jupiter returns the transaction as a Base64-encoded string (“AQAAAAAA…”).
+    # If it ever returns a byte-array, we handle that too.
     if isinstance(tx_raw, str):
         print(f"[DEBUG] swapTransaction is a Base64 string (len={len(tx_raw)})")
         try:
@@ -160,7 +150,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
             raise Exception(f"[ERROR] base64.b64decode failed on swapTransaction (“{snippet}”): {e}")
 
     elif isinstance(tx_raw, list):
-        print(f"[DEBUG] swapTransaction is a list of ints (len={len(tx_raw)})")
+        print(f"[DEBUG] swapTransaction is a raw byte list (len={len(tx_raw)})")
         try:
             return bytes(tx_raw)
         except Exception as e:
@@ -168,34 +158,59 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
     else:
         raise Exception(f"[ERROR] Unexpected swapTransaction format: {type(tx_raw)}")
+
 # ──────────────────────────────────────────────────────────────────────────────
-# Send a signed, versioned transaction to Solana mainnet
+# INTERNAL HELPER: submit a fully signed tx (bytes) via JSON-RPC
 # ──────────────────────────────────────────────────────────────────────────────
+async def _send_raw_via_rpc(signed_tx_bytes: bytes) -> str:
+    """
+    Take a fully-signed transaction (bytes), base64-encode it,
+    and POST it to Solana RPC with method `sendTransaction`.
+    Returns the signature string on success.
+    """
+    tx_b64 = base64.b64encode(signed_tx_bytes).decode("utf-8")
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "sendTransaction",
+        "params": [
+            tx_b64,
+            {
+                "encoding": "base64",
+                "skipPreflight": True,
+                "preflightCommitment": "confirmed"
+            }
+        ]
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(RPC_URL, json=payload) as resp:
+            resp_json = await resp.json()
+            print(f"[DEBUG] sendTransaction response: {json.dumps(resp_json, indent=2)}")
+
+            if resp_json.get("error"):
+                raise Exception(f"sendTransaction failed: {resp_json['error']}")
+            return resp_json["result"]
+
 # ──────────────────────────────────────────────────────────────────────────────
-# 2. Sign and send the decoded versioned transaction (raw_tx_bytes)
+# Send a signed, versioned transaction to Solana mainnet (using _send_raw_via_rpc)
 # ──────────────────────────────────────────────────────────────────────────────
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
+    """
+    raw_tx_bytes: the bytes returned from get_swap_transaction(...)
+    keypair:     your payer's Keypair (solders)
+    """
     try:
-        # 1) Deserialize the incoming Base64‐decoded tx into a solders VersionedTransaction
+        # 1) Deserialize into a solders VersionedTransaction
         tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
 
-        # 2) Grab the MessageV0 and serialize it to bytes for signing.
-        #    In solders, `bytes(tx.message)` is the correct way to get the message‐bytes.
+        # 2) Extract the message (MessageV0) as raw bytes
         msg_bytes = bytes(tx.message)
 
-        # 3) Sign those message‐bytes with your Keypair -> this returns a solders Signature
+        # 3) Sign those message bytes with your solders Keypair -> solders.Signature
         sig: Signature = keypair.sign_message(msg_bytes)
 
-        # 4) Find YOUR signer index in the tx.message.account_keys array.
-        #    VersionedTransaction.message.account_keys is a Vec<Pubkey>.
-        #
-        #    In a versioned tx, the first `num_required_signatures` accounts
-        #    are the “signer” accounts. So we scan through them to find
-        #    which index matches your keypair’s public key.
-        #
-        #    If you’re the only signer, this loop still works (it’ll find index 0 if
-        #    your pubkey is the very first account_key).
-        #
+        # 4) Find the signer index in tx.message.account_keys
         signer_index = None
         for idx, acct in enumerate(tx.message.account_keys):
             if acct == keypair.pubkey():
@@ -204,53 +219,34 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
 
         if signer_index is None:
             raise Exception(
-                f"[ERROR] Could not find my public key ({keypair.pubkey()}) among the transaction’s account_keys. "
-                "Make sure you passed the correct raw_tx_bytes and that your Keypair is actually a required signer in that tx."
+                f"[ERROR] Could not find public key {keypair.pubkey()} in account_keys"
             )
 
-        # 5) Copy the existing signatures list (if any) to a mutable Python list.
-        #    solders.Transaction.signatures is a Vec<Signature>, which behaves like a tuple/list.
+        # 5) Get the existing signature slots (Vec<Signature>) and replace the slot at signer_index
         orig_sigs = list(tx.signatures)
-
-        # 6) If the original tx had fewer slots than needed, pad with “empty” signatures:
-        #    In versioned txes, sig slots must exactly match num_required_signatures.
-        #    But solders.from_bytes(...) should have filled them with placeholder “Signature::default()”
-        #    if they were empty. We just double‐check length:
         if len(orig_sigs) < len(tx.signatures):
-            # This normally shouldn’t happen—solders.from_bytes gives you the right length. But just in case:
+            # pad if necessary (usually solders.from_bytes did this)
             orig_sigs += [Signature.default()] * (len(tx.signatures) - len(orig_sigs))
 
-        # 7) Replace only the slot at `signer_index` with your fresh signature.
         orig_sigs[signer_index] = sig
 
-        # 8) Reconstruct a new VersionedTransaction using the SAME message but UPDATED signatures:
+        # 6) Reconstruct a new VersionedTransaction with updated signatures
         signed_tx = VersionedTransaction(tx.message, orig_sigs)
 
-        # 9) Serialize the signed transaction as bytes (again, no .serialize()):
+        # 7) Serialize into bytes
         serialized_bytes = bytes(signed_tx)
         print(f"[DEBUG] Signed transaction size: {len(serialized_bytes)} bytes")
-        print(f"[DEBUG] Signatures after replacement:")
-        for i, s in enumerate(orig_sigs):
-            print(f"  slot {i:>2}:  {s}")
 
-        # 10) Send the fully‐signed raw bytes to the cluster—do NOT pass keypairs here.
-        sig_resp = await client.send_raw_transaction(
-            serialized_bytes,
-            opts={"skip_preflight": True, "preflight_commitment": "confirmed"}
-        )
-        sig_str = sig_resp.value
-        print(f"[TXN] Sent:      {sig_str}")
-
-        # 11) Wait for confirmation
-        await client.confirm_transaction(sig_str, commitment="confirmed")
-        print(f"[TXN] Confirmed: {sig_str}")
-
+        # 8) Submit via JSON-RPC
+        sig_str = await _send_raw_via_rpc(serialized_bytes)
+        print(f"[TXN] Sent & confirmed: {sig_str}")
         return sig_str
 
     except Exception as e:
-        raise Exception(f"[ERROR] Final send_transaction (buy) failed: {e}")
+        raise Exception(f"[ERROR] Final send_transaction failed: {e}")
+
 # ──────────────────────────────────────────────────────────────────────────────
-# High‐level helper to buy a token with real Jupiter swap
+# High-level helper to buy a token with real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
 async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     print(f"[BUY] Buying {mint} for {sol_amount} SOL")
@@ -258,7 +254,7 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     lamports = int(sol_amount * 1e9)
 
     quote_response = await get_swap_route(SOL_MINT, mint, lamports)
-    raw_tx_bytes       = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
         sig = await send_transaction(raw_tx_bytes, kp)
@@ -268,7 +264,7 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     print(f"[BUY] Completed buy of {mint}, signature: {sig}")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# High‐level helper to sell (98% of balance) using real Jupiter swap
+# High-level helper to sell (98% of balance) using real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
 async def sell_token_real(private_key: str, mint: str):
     from spl.token.instructions import get_associated_token_address
@@ -276,11 +272,7 @@ async def sell_token_real(private_key: str, mint: str):
     print(f"[SELL] Selling all of {mint}")
     kp = get_keypair_from_base58(private_key)
 
-    try:
-        ata = get_associated_token_address(kp.pubkey(), Pubkey.from_string(mint))
-    except Exception as e:
-        raise Exception(f"[ERROR] Could not derive ATA for {mint}: {e}")
-
+    ata = get_associated_token_address(kp.pubkey(), Pubkey.from_string(mint))
     balance = await get_token_balance(ata)
     print(f"[SELL] Token account {ata}, balance = {balance}")
     if balance == 0:
@@ -293,7 +285,7 @@ async def sell_token_real(private_key: str, mint: str):
         return
 
     quote_response = await get_swap_route(mint, SOL_MINT, balance)
-    raw_tx_bytes       = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
         sig = await send_transaction(raw_tx_bytes, kp)
@@ -306,6 +298,7 @@ async def sell_token_real(private_key: str, mint: str):
 # Helper to fetch a token account’s balance (in raw amount, not UI decimal)
 # ──────────────────────────────────────────────────────────────────────────────
 async def get_token_balance(token_account: Pubkey) -> int:
+    # We can still use the shared AsyncClient to query balances
     resp = await client.get_token_account_balance(token_account)
     amt  = int(resp.value.amount)
     print(f"[DEBUG] Token balance for {token_account}: {amt}")
