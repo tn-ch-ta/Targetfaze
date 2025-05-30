@@ -1,4 +1,5 @@
 # utils/real_swap.py
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Monkey-patch httpx.AsyncClient to swallow the `proxy` kwarg so solana-py works
 import httpx
@@ -8,7 +9,7 @@ def _patched_async_init(self, *args, proxy=None, **kwargs):
 httpx.AsyncClient.__init__ = _patched_async_init
 # ──────────────────────────────────────────────────────────────────────────────
 
-import base58
+import base64
 import aiohttp
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
@@ -59,31 +60,13 @@ client = AsyncClient(RPC_URL)
 client._provider = AsyncHTTPProvider(RPC_URL, timeout=30)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Utility: ensure a string is valid Base58 before decoding
-# ──────────────────────────────────────────────────────────────────────────────
-def ensure_valid_base58(s: str):
-    """
-    Raise an Exception if `s` is not valid Base58.
-    This catches invalid characters like 'O', '0', 'I', 'l', etc.
-    """
-    try:
-        _ = base58.b58decode(s)
-    except Exception as e:
-        snippet = s[:10] + ("..." if len(s) > 10 else "")
-        raise Exception(f"Not valid base58 (“{snippet}”): {e}")
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Convert a base58-encoded private key into a Keypair, with validation
+# Convert a Base58‐encoded private key into a Keypair, with validation
 # ──────────────────────────────────────────────────────────────────────────────
 def get_keypair_from_base58(private_key: str) -> Keypair:
-    print(f"[DEBUG] → Received private_key (len={len(private_key)}): {private_key[:10]}…")
-    # 1) Validate base58:
-    ensure_valid_base58(private_key)
-    # 2) Decode into bytes and build Keypair
+    # We assume the input is valid Base58‐encoded 64‐byte keypair
     try:
         raw_bytes = base58.b58decode(private_key)
     except Exception as e:
-        # This should not happen if ensure_valid_base58 passed, but guard anyway
         raise Exception(f"[ERROR] base58.b58decode failed on private_key: {e}")
     try:
         kp = Keypair.from_bytes(raw_bytes)
@@ -162,24 +145,19 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
     if not tx_raw:
         raise Exception(f"Jupiter swap failed, no transaction returned: {json_data}")
 
-    # Jupiter may return either:
-    #  (a) a Base58 string, or
-    #  (b) an array of integers (raw bytes) in JSON.
+    # Jupiter returns the transaction as a Base64‐encoded string (“AQAAAAAA…”).
     if isinstance(tx_raw, str):
-        print(f"[DEBUG] swapTransaction is a Base58 string (len={len(tx_raw)})")
-        # Validate Base58 before decoding
+        print(f"[DEBUG] swapTransaction is a Base64 string (len={len(tx_raw)})")
         try:
-            ensure_valid_base58(tx_raw)
+            raw_bytes = base64.b64decode(tx_raw)
         except Exception as e:
-            raise Exception(f"[ERROR] swapTransaction is not valid Base58: {e}")
-        try:
-            return base58.b58decode(tx_raw)
-        except Exception as e:
-            raise Exception(f"[ERROR] base58.b58decode failed on swapTransaction: {e}")
+            snippet = tx_raw[:10] + ("..." if len(tx_raw) > 10 else "")
+            raise Exception(f"[ERROR] base64.b64decode failed on swapTransaction (“{snippet}”): {e}")
+        return raw_bytes
 
+    # If it were ever to return a list of ints (unlikely), convert to bytes
     elif isinstance(tx_raw, list):
-        # Already raw bytes array, just convert list[int] → bytes
-        print(f"[DEBUG] swapTransaction is a raw byte-array (list of ints, len={len(tx_raw)})")
+        print(f"[DEBUG] swapTransaction is a raw byte‐array (list of ints, len={len(tx_raw)})")
         try:
             return bytes(tx_raw)
         except Exception as e:
@@ -208,7 +186,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     return sig
 
 # ──────────────────────────────────────────────────────────────────────────────
-# High-level helper to buy a token with real Jupiter swap
+# High‐level helper to buy a token with real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
 async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     print(f"[BUY] Buying {mint} for {sol_amount} SOL")
@@ -226,7 +204,7 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     print(f"[BUY] Completed buy of {mint}, signature: {sig}")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# High-level helper to sell (98% of balance) using real Jupiter swap
+# High‐level helper to sell (98% of balance) using real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
 async def sell_token_real(private_key: str, mint: str):
     from spl.token.instructions import get_associated_token_address
@@ -244,7 +222,7 @@ async def sell_token_real(private_key: str, mint: str):
     if balance == 0:
         print("[SELL] Nothing to sell.")
         return
-    
+
     sell_amount = int(balance * 0.98)
     if sell_amount == 0:
         print("[SELL] 98% of balance is 0, skipping.")
