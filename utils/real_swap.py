@@ -15,6 +15,7 @@ import aiohttp
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
+from solders.message import Message, MessageV0
 from solders.hash import Hash
 from solders.signature import Signature
 from solana.rpc.async_api import AsyncClient
@@ -175,17 +176,23 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 # ──────────────────────────────────────────────────────────────────────────────
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     try:
-        # Decode the base64-encoded versioned transaction from Jupiter
+        # Deserialize raw bytes into VersionedTransaction
         tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
 
-        # Sign the transaction message manually using solders
-        sig = keypair.sign_message(tx.message.serialize())
+        # Serialize message properly (MessageV0 -> bytes)
+        msg_bytes = bytes(tx.message)  # <-- fixed here
+
+        # Sign the serialized message bytes with keypair
+        sig = keypair.sign_message(msg_bytes)
+
+        # Create new VersionedTransaction with message and signatures list
         signed_tx = VersionedTransaction(tx.message, [sig])
 
-        serialized = signed_tx.serialize()
+        # Serialize the signed transaction (bytes, not .serialize())
+        serialized = bytes(signed_tx)  # <-- fixed here
         print(f"[DEBUG] Signed transaction size: {len(serialized)} bytes")
 
-        # Send it (opts = dict, no TxOpts)
+        # Send the signed serialized transaction to Solana cluster
         sig_resp = await client.send_raw_transaction(
             serialized,
             opts={"skip_preflight": True, "preflight_commitment": "confirmed"}
@@ -193,9 +200,10 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         sig_str = sig_resp.value
         print(f"[TXN] Sent:      {sig_str}")
 
-        # Confirm the transaction
+        # Confirm transaction finalized
         await client.confirm_transaction(sig_str, commitment="confirmed")
         print(f"[TXN] Confirmed: {sig_str}")
+
         return sig_str
 
     except Exception as e:
