@@ -198,7 +198,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         #
         signer_index = None
         for idx, acct in enumerate(tx.message.account_keys):
-            if acct == Pubkey.from_bytes(keypair.pubkey().to_bytes()):
+            if acct == keypair.pubkey():
                 signer_index = idx
                 break
 
