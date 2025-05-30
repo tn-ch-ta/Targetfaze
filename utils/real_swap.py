@@ -171,7 +171,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 # Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
-    tx = VersionedTransaction.deserialize(raw_tx_bytes)
+    tx = VersionedTransaction.from_bytes(base64.b64decode(swap_transaction))
     tx.sign([keypair])
     serialized = tx.serialize()
     print(f"[DEBUG] Signed transaction size: {len(serialized)} bytes")
