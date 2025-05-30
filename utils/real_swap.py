@@ -176,45 +176,72 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 # ──────────────────────────────────────────────────────────────────────────────
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     try:
-        # 1. Deserialize transaction
-        tx = VersionedTransaction.from_bytes(raw_tx_bytes)
+        # 1) Deserialize the incoming Base64‐decoded tx into a solders VersionedTransaction
+        tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
 
-        # 2. Find signer index by matching keypair pubkey to message.account_keys
-        pubkey_bytes = bytes(keypair.pubkey())
-        try:
-            signer_index = next(
-                i for i, acct in enumerate(tx.message.account_keys) if bytes(acct) == pubkey_bytes
-            )
-        except StopIteration:
-            raise Exception("Keypair public key not found in transaction's account keys")
-
-        # 3. Prepare message bytes for signing
+        # 2) Grab the MessageV0 and serialize it to bytes for signing.
+        #    In solders, `bytes(tx.message)` is the correct way to get the message‐bytes.
         msg_bytes = bytes(tx.message)
 
-        # 4. Sign message bytes with keypair
-        signature = keypair.sign_message(msg_bytes)
+        # 3) Sign those message‐bytes with your Keypair -> this returns a solders Signature
+        sig: Signature = keypair.sign_message(msg_bytes)
 
-        # 5. Create mutable copy of signatures list and insert signature at signer index
-        sigs = list(tx.signatures)
-        # Replace the signature at signer index with yours
-        sigs[signer_index] = signature
+        # 4) Find YOUR signer index in the tx.message.account_keys array.
+        #    VersionedTransaction.message.account_keys is a Vec<Pubkey>.
+        #
+        #    In a versioned tx, the first `num_required_signatures` accounts
+        #    are the “signer” accounts. So we scan through them to find
+        #    which index matches your keypair’s public key.
+        #
+        #    If you’re the only signer, this loop still works (it’ll find index 0 if
+        #    your pubkey is the very first account_key).
+        #
+        signer_index = None
+        for idx, acct in enumerate(tx.message.account_keys):
+            if acct == Pubkey.from_bytes(keypair.pubkey().to_bytes()):
+                signer_index = idx
+                break
 
-        # 6. Build new signed transaction
-        signed_tx = VersionedTransaction(tx.message, sigs)
+        if signer_index is None:
+            raise Exception(
+                f"[ERROR] Could not find my public key ({keypair.pubkey()}) among the transaction’s account_keys. "
+                "Make sure you passed the correct raw_tx_bytes and that your Keypair is actually a required signer in that tx."
+            )
 
-        # 7. Serialize signed transaction
-        serialized = bytes(signed_tx)
-        print(f"[DEBUG] Signed transaction size: {len(serialized)} bytes")
+        # 5) Copy the existing signatures list (if any) to a mutable Python list.
+        #    solders.Transaction.signatures is a Vec<Signature>, which behaves like a tuple/list.
+        orig_sigs = list(tx.signatures)
 
-        # 8. Send raw transaction bytes
+        # 6) If the original tx had fewer slots than needed, pad with “empty” signatures:
+        #    In versioned txes, sig slots must exactly match num_required_signatures.
+        #    But solders.from_bytes(...) should have filled them with placeholder “Signature::default()”
+        #    if they were empty. We just double‐check length:
+        if len(orig_sigs) < len(tx.signatures):
+            # This normally shouldn’t happen—solders.from_bytes gives you the right length. But just in case:
+            orig_sigs += [Signature.default()] * (len(tx.signatures) - len(orig_sigs))
+
+        # 7) Replace only the slot at `signer_index` with your fresh signature.
+        orig_sigs[signer_index] = sig
+
+        # 8) Reconstruct a new VersionedTransaction using the SAME message but UPDATED signatures:
+        signed_tx = VersionedTransaction(tx.message, orig_sigs)
+
+        # 9) Serialize the signed transaction as bytes (again, no .serialize()):
+        serialized_bytes = bytes(signed_tx)
+        print(f"[DEBUG] Signed transaction size: {len(serialized_bytes)} bytes")
+        print(f"[DEBUG] Signatures after replacement:")
+        for i, s in enumerate(orig_sigs):
+            print(f"  slot {i:>2}:  {s}")
+
+        # 10) Send the fully‐signed raw bytes to the cluster—do NOT pass keypairs here.
         sig_resp = await client.send_raw_transaction(
-            serialized,
+            serialized_bytes,
             opts={"skip_preflight": True, "preflight_commitment": "confirmed"}
         )
         sig_str = sig_resp.value
-        print(f"[TXN] Sent: {sig_str}")
+        print(f"[TXN] Sent:      {sig_str}")
 
-        # 9. Confirm transaction
+        # 11) Wait for confirmation
         await client.confirm_transaction(sig_str, commitment="confirmed")
         print(f"[TXN] Confirmed: {sig_str}")
 
