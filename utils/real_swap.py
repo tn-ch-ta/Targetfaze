@@ -120,7 +120,7 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 2: Build a real transaction from the quoteResponse and decode into raw bytes
 # ──────────────────────────────────────────────────────────────────────────────
-async def get_swap_transaction(quote_response: dict, user_pubkey: PublicKey) -> bytes:
+async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> bytes:
     """
     Given Jupiter’s quoteResponse, send to /swap to get the serialized VersionedTransaction.
     Jupiter may return the transaction as either:
