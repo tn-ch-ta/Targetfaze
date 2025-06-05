@@ -342,7 +342,7 @@ async def sell_token_real(private_key: str, mint: str):
 # ──────────────────────────────────────────────────────────────────────────────
 # Helper to fetch a token account’s balance (in raw amount)
 # ──────────────────────────────────────────────────────────────────────────────
-async def get_token_balance(token_account: PublicKey) -> int:
+async def get_token_balance(token_account: Pubkey) -> int:
     resp = await client.get_token_account_balance(token_account)
     amt  = int(resp.value.amount)
     print(f"[DEBUG] Token balance for {token_account}: {amt}")
