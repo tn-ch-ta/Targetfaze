@@ -19,7 +19,6 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.hash import Hash
 from solders.transaction import VersionedTransaction
-from solana.transaction import TransactionSignature
 from solana.rpc.async_api import AsyncClient
 
 # ──────────────────────────────────────────────────────────────────────────────
