@@ -15,8 +15,10 @@ import aiohttp
 import json
 import logging
 
-from solana.keypair import Keypair
-from solana.publickey import PublicKey
+from solders.keypair import Keypair
+from solders.pubkey import Pubkey
+from solders.hash import Hash
+from solders.signature import Signature
 from solana.transaction import VersionedTransaction
 from solana.rpc.async_api import AsyncClient
 
