@@ -214,7 +214,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
 
         # ------------------------------------------------------------
-        # DEBUG: Inspect the transaction’s account_keys and signatures
+        # DEBUG: Inspect the transaction’s account_keys and existing signatures
         # ------------------------------------------------------------
         print(f"[DEBUG] Deserialized VersionedTransaction:")
         print(f"         message.account_keys (len={len(tx.message.account_keys)}):")
@@ -225,58 +225,27 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         for i, s in enumerate(tx.signatures):
             print(f"           slot {i:>2}: {s}")
 
-        # 2) Extract the message (MessageV0) as raw bytes
-        msg_bytes = bytes(tx.message)
+        # 2) Sign the transaction in-place with your Keypair.
+        #    This will automatically find the correct signing slot(s).
+        tx.sign([keypair])
 
-        # 3) Sign those message bytes with your solders Keypair → solders.Signature
-        sig: Signature = keypair.sign_message(msg_bytes)
-        print(f"[DEBUG] Created new signature: {sig}")
-
-        # 4) Find the signer index in tx.message.account_keys
-        signer_index = None
-        for idx, acct in enumerate(tx.message.account_keys):
-            if acct == keypair.pubkey():
-                signer_index = idx
-                break
-
-        if signer_index is None:
-            raise Exception(
-                f"[ERROR] Could not find public key {keypair.pubkey()} in account_keys!"
-            )
-        print(f"[DEBUG] My pubkey is at account_keys index = {signer_index}")
-
-        # 5) Get the existing signature slots (Vec<Signature>) and replace the slot at signer_index
-        orig_sigs = list(tx.signatures)
-        # (Normally solders.from_bytes(...) already gives you a Vec<Signature> of correct length,
-        #  but we double-check just in case.)
-        if len(orig_sigs) < len(tx.signatures):
-            orig_sigs += [Signature.default()] * (len(tx.signatures) - len(orig_sigs))
-
-        print(f"[DEBUG] Before replacement, signature slots were:")
-        for i, s in enumerate(orig_sigs):
+        # ------------------------------------------------------------
+        # DEBUG: Show signatures after signing
+        # ------------------------------------------------------------
+        print(f"[DEBUG] Signatures after calling tx.sign([...]):")
+        for i, s in enumerate(tx.signatures):
             print(f"           slot {i:>2}: {s}")
 
-        # Replace only MY slot with the newly computed signature:
-        orig_sigs[signer_index] = sig
-
-        print(f"[DEBUG] After replacement, signature slots are:")
-        for i, s in enumerate(orig_sigs):
-            print(f"           slot {i:>2}: {s}")
-
-        # 6) Reconstruct a new VersionedTransaction with updated signatures
-        signed_tx = VersionedTransaction(tx.message, orig_sigs)
-
-        # 7) Serialize into bytes
-        serialized_bytes = bytes(signed_tx)
+        # 3) Serialize into bytes
+        serialized_bytes = bytes(tx)
         print(f"[DEBUG] Signed transaction serialized size: {len(serialized_bytes)} bytes")
 
-        # 8) Submit via JSON-RPC (never send a Keypair or Signature here!)
+        # 4) Submit via JSON-RPC (never pass keypairs here)
         sig_str = await _send_raw_via_rpc(serialized_bytes)
         print(f"[TXN] Sent & confirmed: {sig_str}")
         return sig_str
 
     except Exception as e:
-        # If anything at all goes wrong, we get the full traceback here.
         raise Exception(f"[ERROR] Final send_transaction failed: {e}")
 
 # ──────────────────────────────────────────────────────────────────────────────
