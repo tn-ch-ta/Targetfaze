@@ -12,12 +12,13 @@ httpx.AsyncClient.__init__ = _patched_async_init
 import base58
 import base64
 import aiohttp
-from solders.keypair import Keypair
-from solders.pubkey import Pubkey
-from solders.transaction import VersionedTransaction
-from solders.signature import Signature
 import json
 import logging
+
+from solana.keypair import Keypair
+from solana.publickey import PublicKey
+from solana.transaction import VersionedTransaction
+from solana.rpc.async_api import AsyncClient
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Logging setup
@@ -26,7 +27,19 @@ logger = logging.getLogger("real_swap")
 logging.basicConfig(level=logging.INFO)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Helper to drop None values from nested dict/list
+# Constants
+# ──────────────────────────────────────────────────────────────────────────────
+RPC_URL            = "https://api.mainnet-beta.solana.com"
+SOL_MINT           = "So11111111111111111111111111111111111111112"
+JUPITER_QUOTE_API  = "https://lite-api.jup.ag/swap/v1/quote"
+JUPITER_SWAP_API   = "https://lite-api.jup.ag/swap/v1/swap"
+
+# shared AsyncClient (re-used to query balances or sendRawTransaction)
+client = AsyncClient(RPC_URL)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helper: drop None values from nested dict/list
 # ──────────────────────────────────────────────────────────────────────────────
 def clean_none(obj):
     if isinstance(obj, dict):
@@ -35,6 +48,9 @@ def clean_none(obj):
         return [clean_none(v) for v in obj]
     return obj
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Helper: print any bool fields (for debugging Jupiter quote payload)
+# ──────────────────────────────────────────────────────────────────────────────
 def log_bool_fields(obj, path="root"):
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -45,34 +61,36 @@ def log_bool_fields(obj, path="root"):
         for i, v in enumerate(obj):
             log_bool_fields(v, f"{path}[{i}]")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Constants
-# ──────────────────────────────────────────────────────────────────────────────
-RPC_URL            = "https://api.mainnet-beta.solana.com"
-SOL_MINT           = "So11111111111111111111111111111111111111112"
-JUPITER_QUOTE_API  = "https://lite-api.jup.ag/swap/v1/quote"
-JUPITER_SWAP_API   = "https://lite-api.jup.ag/swap/v1/swap"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Convert a Base58-encoded private key into a Keypair, with validation
+# Convert a Base58-encoded private key into a Solana-py Keypair
 # ──────────────────────────────────────────────────────────────────────────────
 def get_keypair_from_base58(private_key: str) -> Keypair:
-    # We assume the input is valid Base58-encoded 64-byte keypair
+    """
+    Expects a Base58-encoded 64-byte (secret key) string.
+    """
     try:
         raw_bytes = base58.b58decode(private_key)
     except Exception as e:
         raise Exception(f"[ERROR] base58.b58decode failed on private_key: {e}")
+
     try:
-        kp = Keypair.from_bytes(raw_bytes)
+        kp = Keypair.from_secret_key(raw_bytes)
     except Exception as e:
-        raise Exception(f"[ERROR] Keypair.from_bytes failed: {e}")
-    print(f"[DEBUG] Loaded Keypair, pubkey={kp.pubkey()}")
+        raise Exception(f"[ERROR] Keypair.from_secret_key failed: {e}")
+
+    print(f"[DEBUG] Loaded Keypair, pubkey={kp.public_key}")
     return kp
 
+
 # ──────────────────────────────────────────────────────────────────────────────
-# Fetch a Jupiter quote (“routePlan”) for swapping `amount` of input_mint → output_mint
+# Step 1: Fetch a Jupiter quote (“routePlan”) for swapping `amount` of input_mint → output_mint
 # ──────────────────────────────────────────────────────────────────────────────
 async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 1.0) -> dict:
+    """
+    Returns the full JSON response from Jupiter’s /quote endpoint.
+    Must contain "routePlan" to be valid.
+    """
     print(f"[DEBUG] Requesting quote: input={input_mint}, output={output_mint}, amount={amount}")
     params = {
         "inputMint":                 input_mint,
@@ -82,6 +100,7 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
         "onlyDirectRoutes":          "false",
         "restrictIntermediateTokens": "true",
     }
+
     async with aiohttp.ClientSession() as session:
         async with session.get(JUPITER_QUOTE_API, params=params) as resp:
             try:
@@ -96,14 +115,22 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
 
     return json_data
 
+
 # ──────────────────────────────────────────────────────────────────────────────
-# Build a real transaction from the quoteResponse and decode into raw bytes
+# Step 2: Build a real transaction from the quoteResponse and decode into raw bytes
 # ──────────────────────────────────────────────────────────────────────────────
-async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> bytes:
-    # 1) Log boolean fields for debugging
+async def get_swap_transaction(quote_response: dict, user_pubkey: PublicKey) -> bytes:
+    """
+    Given Jupiter’s quoteResponse, send to /swap to get the serialized VersionedTransaction.
+    Jupiter may return the transaction as either:
+      • a Base64-encoded string
+      • a raw array of bytes (list[int])
+    We decode whichever form we see into raw bytes.
+    """
+    # 1) Log boolean fields (debug)
     log_bool_fields(quote_response)
 
-    # 2) Clean out any None values in the quoteResponse
+    # 2) Remove None values
     quote_clean = clean_none(quote_response)
 
     payload = {
@@ -139,8 +166,9 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
     if not tx_raw:
         raise Exception(f"Jupiter swap failed, no transaction returned: {json_data}")
 
-    # Jupiter returns the transaction as a Base64-encoded string (“AQAAAAAA…”).
-    # If it ever returns a byte-array, we handle that too.
+    # Jupiter returns the transaction as a Base64-encoded string (“AQAAAAAA…”),
+    # or as a list of ints. We decode accordingly:
+
     if isinstance(tx_raw, str):
         print(f"[DEBUG] swapTransaction is a Base64 string (len={len(tx_raw)})")
         try:
@@ -159,14 +187,14 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
     else:
         raise Exception(f"[ERROR] Unexpected swapTransaction format: {type(tx_raw)}")
 
+
 # ──────────────────────────────────────────────────────────────────────────────
-# INTERNAL HELPER: submit a fully signed tx (bytes) via JSON-RPC
+# INTERNAL HELPER: submit a fully-signed tx via JSON-RPC
 # ──────────────────────────────────────────────────────────────────────────────
 async def _send_raw_via_rpc(signed_tx_bytes: bytes) -> str:
     """
-    Take a fully-signed transaction (bytes), base64-encode it,
-    and POST it to Solana RPC with method `sendTransaction`.
-    Returns the signature string on success.
+    Base64-encode `signed_tx_bytes` and invoke `sendTransaction` JSON-RPC.
+    Returns the transaction signature on success.
     """
     tx_b64 = base64.b64encode(signed_tx_bytes).decode("utf-8")
     payload = {
@@ -187,46 +215,45 @@ async def _send_raw_via_rpc(signed_tx_bytes: bytes) -> str:
         async with session.post(RPC_URL, json=payload) as resp:
             resp_json = await resp.json()
             print(f"[DEBUG] sendTransaction response: {json.dumps(resp_json, indent=2)}")
-
             if resp_json.get("error"):
                 raise Exception(f"sendTransaction failed: {resp_json['error']}")
             return resp_json["result"]
 
+
 # ──────────────────────────────────────────────────────────────────────────────
-# Send a signed, versioned transaction to Solana mainnet (using _send_raw_via_rpc)
+# Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     """
-    raw_tx_bytes: the bytes returned from get_swap_transaction(...)
-    keypair:     your payer's Keypair (solders)
+    1) Deserialize Jupiter’s raw_tx_bytes into a solana-py VersionedTransaction.
+    2) Sign it with your Keypair.
+    3) Serialize the signed tx and push via JSON-RPC (sendTransaction).
     """
     try:
         # ------------------------------------------------------------
-        # DEBUG: Check incoming types immediately
+        # DEBUG: Validate types
         # ------------------------------------------------------------
         print(f"[DEBUG] send_transaction called with:")
         print(f"         raw_tx_bytes type  = {type(raw_tx_bytes)}")
-        print(f"         keypair      type  = {type(keypair)} / pubkey={keypair.pubkey()}")
+        print(f"         keypair      type  = {type(keypair)} / pubkey={keypair.public_key}")
         if not isinstance(raw_tx_bytes, (bytes, bytearray)):
             raise Exception(f"[ERROR] raw_tx_bytes is not bytes/bytearray!  Got: {type(raw_tx_bytes)}")
 
-        # 1) Deserialize into a solders VersionedTransaction
-        tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
+        # 1) Deserialize Jupiter’s bytes into a solana-py VersionedTransaction
+        tx = VersionedTransaction.deserialize(raw_tx_bytes)
 
         # ------------------------------------------------------------
-        # DEBUG: Inspect the transaction’s account_keys and existing signatures
+        # DEBUG: Inspect account_keys & existing signatures
         # ------------------------------------------------------------
         print(f"[DEBUG] Deserialized VersionedTransaction:")
         print(f"         message.account_keys (len={len(tx.message.account_keys)}):")
         for i, acct in enumerate(tx.message.account_keys):
             print(f"           slot {i:>2}: {acct}")
-
         print(f"         original signatures (len={len(tx.signatures)}):")
         for i, s in enumerate(tx.signatures):
             print(f"           slot {i:>2}: {s}")
 
-        # 2) Sign the transaction in-place with your Keypair.
-        #    This will automatically find the correct signing slot(s).
+        # 2) Sign the transaction with your Keypair (solana-py does this in-place)
         tx.sign([keypair])
 
         # ------------------------------------------------------------
@@ -236,17 +263,18 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         for i, s in enumerate(tx.signatures):
             print(f"           slot {i:>2}: {s}")
 
-        # 3) Serialize into bytes
+        # 3) Serialize the fully signed transaction
         serialized_bytes = bytes(tx)
         print(f"[DEBUG] Signed transaction serialized size: {len(serialized_bytes)} bytes")
 
-        # 4) Submit via JSON-RPC (never pass keypairs here)
+        # 4) Submit via JSON-RPC
         sig_str = await _send_raw_via_rpc(serialized_bytes)
         print(f"[TXN] Sent & confirmed: {sig_str}")
         return sig_str
 
     except Exception as e:
         raise Exception(f"[ERROR] Final send_transaction failed: {e}")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # High-level helper to buy a token with real Jupiter swap
@@ -257,7 +285,7 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     lamports = int(sol_amount * 1e9)
 
     quote_response = await get_swap_route(SOL_MINT, mint, lamports)
-    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.public_key)
 
     try:
         sig = await send_transaction(raw_tx_bytes, kp)
@@ -266,29 +294,41 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
 
     print(f"[BUY] Completed buy of {mint}, signature: {sig}")
 
+
 # ──────────────────────────────────────────────────────────────────────────────
 # High-level helper to sell (98% of balance) using real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
 async def sell_token_real(private_key: str, mint: str):
-    from spl.token.instructions import get_associated_token_address
+    from solana.system_program import SYSVAR_RENT_PUBKEY
+    from spl.token.async_client import AsyncToken
+    from solana.rpc.commitment import Confirmed
 
     print(f"[SELL] Selling all of {mint}")
     kp = get_keypair_from_base58(private_key)
 
-    ata = get_associated_token_address(kp.pubkey(), Pubkey.from_string(mint))
-    balance = await get_token_balance(ata)
+    # 1) Derive the ATA (associated token account) for this mint & user
+    ata = AsyncToken.get_associated_token_address(
+        owner=kp.public_key, 
+        mint=PublicKey(mint)
+    )
+
+    # 2) Fetch current token balance
+    resp = await client.get_token_account_balance(ata, commitment=Confirmed)
+    balance = int(resp.value.amount)
     print(f"[SELL] Token account {ata}, balance = {balance}")
     if balance == 0:
         print("[SELL] Nothing to sell.")
         return
 
+    # 3) Compute 98% of balance (but we still quote for full `balance`; Jupiter will deduct fee)
     sell_amount = int(balance * 0.98)
     if sell_amount == 0:
         print("[SELL] 98% of balance is 0, skipping.")
         return
 
+    # 4) Get a quote: token → SOL
     quote_response = await get_swap_route(mint, SOL_MINT, balance)
-    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.public_key)
 
     try:
         sig = await send_transaction(raw_tx_bytes, kp)
@@ -297,11 +337,11 @@ async def sell_token_real(private_key: str, mint: str):
 
     print(f"[SELL] Completed sell of {mint}, signature: {sig}")
 
+
 # ──────────────────────────────────────────────────────────────────────────────
-# Helper to fetch a token account’s balance (in raw amount, not UI decimal)
+# Helper to fetch a token account’s balance (in raw amount)
 # ──────────────────────────────────────────────────────────────────────────────
-async def get_token_balance(token_account: Pubkey) -> int:
-    # We can still use the shared AsyncClient to query balances
+async def get_token_balance(token_account: PublicKey) -> int:
     resp = await client.get_token_account_balance(token_account)
     amt  = int(resp.value.amount)
     print(f"[DEBUG] Token balance for {token_account}: {amt}")
