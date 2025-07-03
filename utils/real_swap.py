@@ -17,7 +17,7 @@ import logging
 
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
-from solana.transaction import VersionedTransaction
+from solders.transaction import VersionedTransaction
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TxOpts
 from solana.rpc.commitment import Confirmed
