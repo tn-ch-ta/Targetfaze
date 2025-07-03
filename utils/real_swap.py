@@ -239,8 +239,8 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         if not isinstance(raw_tx_bytes, (bytes, bytearray)):
             raise Exception(f"[ERROR] raw_tx_bytes is not bytes/bytearray!  Got: {type(raw_tx_bytes)}")
 
-        # 1) Deserialize Jupiter’s bytes into a solana-py VersionedTransaction
-        tx = VersionedTransaction.deserialize(raw_tx_bytes)
+        # 1) Deserialize Jupiter’s bytes into a solders VersionedTransaction
+        tx = VersionedTransaction.from_bytes(raw_tx_bytes)
 
         # ------------------------------------------------------------
         # DEBUG: Inspect account_keys & existing signatures
