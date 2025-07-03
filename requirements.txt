@@ -1,7 +1,7 @@
 python-telegram-bot==20.6
 requests==2.31.0
 solders
-solana==0.36.7
+solana==0.27.0
 base58
 httpx==0.25.0
 aiohttp>=3.9.3
