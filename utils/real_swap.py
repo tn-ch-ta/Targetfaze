@@ -235,7 +235,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         # ------------------------------------------------------------
         print(f"[DEBUG] send_transaction called with:")
         print(f"         raw_tx_bytes type  = {type(raw_tx_bytes)}")
-        print(f"         keypair      type  = {type(keypair)} / pubkey={kp.pubkey()}")
+        print(f"         keypair      type  = {type(keypair)} / pubkey={keypair.pubkey()}")
         if not isinstance(raw_tx_bytes, (bytes, bytearray)):
             raise Exception(f"[ERROR] raw_tx_bytes is not bytes/bytearray!  Got: {type(raw_tx_bytes)}")
 
