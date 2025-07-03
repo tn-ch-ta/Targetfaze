@@ -296,15 +296,14 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
 # High-level helper to sell (98% of balance) using real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
 async def sell_token_real(private_key: str, mint: str):
-    from solana.system_program import SYSVAR_RENT_PUBKEY
-    from spl.token.async_client import AsyncToken
+    from spl.token.instructions import get_associated_token_address
     from solana.rpc.commitment import Confirmed
 
     print(f"[SELL] Selling all of {mint}")
     kp = get_keypair_from_base58(private_key)
 
     # 1) Derive the ATA (associated token account) for this mint & user
-    ata = AsyncToken.get_associated_token_address(
+    ata = get_associated_token_address(
         owner=kp.pubkey(), 
         mint=Pubkey.from_string(mint)
     )
