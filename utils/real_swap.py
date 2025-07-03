@@ -73,12 +73,15 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
     except Exception as e:
         raise Exception(f"[ERROR] base58.b58decode failed on private_key: {e}")
 
-    try:
-        kp = Keypair.from_secret_key(raw_bytes)
-    except Exception as e:
-        raise Exception(f"[ERROR] Keypair.from_secret_key failed: {e}")
+    if len(raw_bytes) != 64:
+        raise ValueError(f"[ERROR] Decoded key must be 64 bytes, got {len(raw_bytes)}")
 
-    print(f"[DEBUG] Loaded Keypair, pubkey={kp.public_key}")
+    try:
+        kp = Keypair.from_bytes(raw_bytes)
+    except Exception as e:
+        raise Exception(f"[ERROR] Keypair.from_bytes failed: {e}")
+
+    print(f"[DEBUG] Loaded Keypair, pubkey={kp.pubkey()}")
     return kp
 
 
