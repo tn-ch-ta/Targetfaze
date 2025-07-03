@@ -282,7 +282,7 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     lamports = int(sol_amount * 1e9)
 
     quote_response = await get_swap_route(SOL_MINT, mint, lamports)
-    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.public_key)
+    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
         sig = await send_transaction(raw_tx_bytes, kp)
@@ -305,8 +305,8 @@ async def sell_token_real(private_key: str, mint: str):
 
     # 1) Derive the ATA (associated token account) for this mint & user
     ata = AsyncToken.get_associated_token_address(
-        owner=kp.public_key, 
-        mint=PublicKey(mint)
+        owner=kp.pubkey(), 
+        mint=Pubkey.from_string(mint)
     )
 
     # 2) Fetch current token balance
@@ -325,7 +325,7 @@ async def sell_token_real(private_key: str, mint: str):
 
     # 4) Get a quote: token → SOL
     quote_response = await get_swap_route(mint, SOL_MINT, balance)
-    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.public_key)
+    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
         sig = await send_transaction(raw_tx_bytes, kp)
