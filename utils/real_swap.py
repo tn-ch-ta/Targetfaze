@@ -190,101 +190,55 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
         raise Exception(f"[ERROR] Unexpected swapTransaction format: {type(tx_raw)}")
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# INTERNAL HELPER: submit a fully-signed tx via JSON-RPC
-# ──────────────────────────────────────────────────────────────────────────────
-async def _send_raw_via_rpc(signed_tx_bytes: bytes) -> str:
-    """
-    Base64-encode `signed_tx_bytes` and invoke `sendTransaction` JSON-RPC.
-    Returns the transaction signature on success.
-    """
-    tx_b64 = base64.b64encode(signed_tx_bytes).decode("utf-8")
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "sendTransaction",
-        "params": [
-            tx_b64,
-            {
-                "encoding": "base64",
-                "skipPreflight": True,
-                "preflightCommitment": "confirmed"
-            }
-        ]
-    }
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(RPC_URL, json=payload) as resp:
-            resp_json = await resp.json()
-            print(f"[DEBUG] sendTransaction response: {json.dumps(resp_json, indent=2)}")
-            if resp_json.get("error"):
-                raise Exception(f"sendTransaction failed: {resp_json['error']}")
-            return resp_json["result"]
-
 
 # Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
-async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
+async def send_transaction(raw_tx_bytes: bytes, keypair) -> str:
     """
-    1) Deserialize Jupiter’s raw_tx_bytes into a solana-py VersionedTransaction.
-    2) Serialize the signed tx and push via JSON-RPC (sendTransaction).
+    raw_tx_bytes: the bytes you got back from get_swap_transaction(...)
+    keypair:     only used to pass your pubkey into get_swap_transaction;
+                 NOT used here at all.
     """
-    try:
-        # ------------------------------------------------------------
-        # DEBUG: Validate types
-        # ------------------------------------------------------------
-        print(f"[DEBUG] send_transaction called with:")
-        print(f"         raw_tx_bytes type  = {type(raw_tx_bytes)}")
-        print(f"         keypair      type  = {type(keypair)} / pubkey={keypair.pubkey()}")
-        if not isinstance(raw_tx_bytes, (bytes, bytearray)):
-            raise Exception(f"[ERROR] raw_tx_bytes is not bytes/bytearray!  Got: {type(raw_tx_bytes)}")
+    # 1) Sanity check
+    if not isinstance(raw_tx_bytes, (bytes, bytearray)):
+        raise Exception(f"raw_tx_bytes must be bytes, got {type(raw_tx_bytes)}")
 
-        # 1) Deserialize Jupiter’s bytes into a solders VersionedTransaction
-        tx = VersionedTransaction.from_bytes(raw_tx_bytes)
+    # 2) Fire off the signed transaction directly
+    #    Note: solana-py autosends the bytes you hand it; no further signing.
+    sig_resp = await client.send_raw_transaction(
+        raw_tx_bytes,
+        opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed)
+    )
+    sig = sig_resp.value
+    print(f"[TXN] Sent:      {sig}")
 
-        # ------------------------------------------------------------
-        # DEBUG: Inspect account_keys & existing signatures
-        # ------------------------------------------------------------
-        print(f"[DEBUG] Deserialized VersionedTransaction:")
-        print(f"         message.account_keys (len={len(tx.message.account_keys)}):")
-        for i, acct in enumerate(tx.message.account_keys):
-            print(f"           slot {i:>2}: {acct}")
-        print(f"         original signatures (len={len(tx.signatures)}):")
-        for i, s in enumerate(tx.signatures):
-            print(f"           slot {i:>2}: {s}")
+    # 3) Wait for it to land
+    await client.confirm_transaction(sig, commitment=Confirmed)
+    print(f"[TXN] Confirmed: {sig}")
 
-        
-        # DEBUG: Show signatures after signing
-        # ------------------------------------------------------------
-        print(f"[DEBUG] Signatures after calling tx.sign([...]):")
-        for i, s in enumerate(tx.signatures):
-            print(f"           slot {i:>2}: {s}")
-
-        # 2) Serialize the fully signed transaction
-        serialized_bytes = bytes(tx)
-        print(f"[DEBUG] Signed transaction serialized size: {len(serialized_bytes)} bytes")
-
-        # 3) Submit via JSON-RPC
-        sig_str = await _send_raw_via_rpc(serialized_bytes)
-        print(f"[TXN] Sent & confirmed: {sig_str}")
-        return sig_str
-
-    except Exception as e:
-        raise Exception(f"[ERROR] Final send_transaction failed: {e}")
-
-
+    return sig
+    
+    
 # Confirm Signature
 #--------------------------
 async def confirm_signature(sig: str, client: AsyncClient) -> bool:
+    """
+    Check if a given transaction signature is confirmed and successful.
+
+    Returns True if the transaction succeeded, False if failed or not found.
+    """
     resp = await client.get_signature_statuses([sig])
     status = resp.value[0]
-    if not status:
+
+    if status is None:
         print(f"[ERROR] Signature {sig} not found on chain.")
         return False
+
     if status.err is not None:
         print(f"[ERROR] Transaction {sig} failed with error: {status.err}")
         return False
-    print(f"[INFO] Transaction {sig} succeeded.")
+
+    print(f"[INFO] Transaction {sig} confirmed successfully.")
     return True
 
 # ──────────────────────────────────────────────────────────────────────────────
