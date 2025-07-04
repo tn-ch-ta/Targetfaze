@@ -273,6 +273,20 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         raise Exception(f"[ERROR] Final send_transaction failed: {e}")
 
 
+# Confirm Signature
+#--------------------------
+async def confirm_signature(sig: str, client: AsyncClient) -> bool:
+    resp = await client.get_signature_statuses([sig])
+    status = resp.value[0]
+    if not status:
+        print(f"[ERROR] Signature {sig} not found on chain.")
+        return False
+    if status.err is not None:
+        print(f"[ERROR] Transaction {sig} failed with error: {status.err}")
+        return False
+    print(f"[INFO] Transaction {sig} succeeded.")
+    return True
+
 # ──────────────────────────────────────────────────────────────────────────────
 # High-level helper to buy a token with real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
@@ -286,6 +300,9 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
 
     try:
         sig = await send_transaction(raw_tx_bytes, kp)
+        success = await confirm_signature(sig, client)
+        if not success:
+            raise Exception("[ERROR] Transaction failed after submission")
     except Exception as e:
         raise Exception(f"[ERROR] Final send_transaction (buy) failed: {e}")
 
@@ -328,6 +345,9 @@ async def sell_token_real(private_key: str, mint: str):
 
     try:
         sig = await send_transaction(raw_tx_bytes, kp)
+        success = await confirm_signature(sig, client)
+        if not success:
+            raise Exception("[ERROR] Transaction failed after submission")
     except Exception as e:
         raise Exception(f"[ERROR] Final send_transaction (sell) failed: {e}")
 
