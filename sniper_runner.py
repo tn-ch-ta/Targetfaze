@@ -16,7 +16,6 @@ async def fetch_new_pumpfun_tokens() -> list[dict]:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=5) as resp:
                 data = await resp.json()
-        # This endpoint usually returns a single dict with "mint", not a list.
         if isinstance(data, dict) and "mint" in data:
             logger.debug("[DEBUG] Fetched 1 token from Pump.fun")
             return [data]
@@ -28,48 +27,54 @@ async def fetch_new_pumpfun_tokens() -> list[dict]:
 
 async def _snipe_loop(uid: int, session):
     logger.info(f"[{uid}] ▶️ Started async sniping session")
+    session.busy = False  # ✅ NEW: initialize busy flag
+
     while session.sniping:
+        if session.busy:
+            await asyncio.sleep(0.5)
+            continue
+
         tokens = await fetch_new_pumpfun_tokens()
         for token in tokens:
             mint = token.get("mint")
             name = token.get("name", "Unnamed")
 
-            # 2) Skip if we've already seen this exact "mint"
             if mint in seen_tokens:
                 logger.debug(f"[{uid}] 🔁 Skipping already seen: {mint}")
                 continue
             seen_tokens.add(mint)
 
-            # 3) Run our safety checks (freeze + liquidity/marketcap)
             hold_duration = await passes_all_checks(mint)
             if hold_duration == 0:
                 logger.info(f"[{uid}] ❌ {name} ({mint}) failed safety checks; skipping.")
                 continue
 
-            logger.info(f"[{uid}] ✅ {name} ({mint}) passed safety checks → buy & hold {hold_duration}s")
+            logger.info(f"[{uid}] ✅ {name} ({mint}) passed checks → buy & hold {hold_duration}s")
 
-            # 4) Attempt the real Jupiter buy
             try:
+                session.busy = True  # ✅ NEW: Lock all further buys
                 await buy_token_real(session.private_key, mint, session.sol_amount)
                 logger.info(f"[{uid}] ✅ Bought {mint} @{session.sol_amount} SOL")
             except Exception as e:
                 logger.error(f"[{uid}] ❌ Buy failed {mint}: {e}")
+                session.busy = False  # ✅ Unlock on failure
                 continue
 
-            # 5) Spawn a background task to auto‐sell 98% after `hold_duration` seconds
             async def _auto_sell(m: str, dur: int):
-                logger.info(f"[{uid}] ⏳ Waiting {dur}s to auto‐sell 98% of {m}…")
+                logger.info(f"[{uid}] ⏳ Holding {m} for {dur}s before auto-sell")
                 await asyncio.sleep(dur)
                 try:
                     await sell_token_real(session.private_key, m)
-                    logger.info(f"[{uid}] 🔁 Auto‐sold 98% of {m}")
+                    logger.info(f"[{uid}] 🔁 Auto-sold 98% of {m}")
                 except Exception as e:
-                    logger.error(f"[{uid}] ❌ Auto‐sell failed {m}: {e}")
+                    logger.error(f"[{uid}] ❌ Auto-sell failed {m}: {e}")
+                finally:
+                    session.busy = False  # ✅ NEW: Release lock after sell
 
             asyncio.create_task(_auto_sell(mint, hold_duration))
 
         await asyncio.sleep(1)
-        
+
 async def start_sniping_for_user(uid: int, session):
     await stop_sniping_for_user(uid)
     session.sniping = True
