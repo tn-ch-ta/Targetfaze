@@ -98,7 +98,7 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
         "inputMint":                 input_mint,
         "outputMint":                output_mint,
         "amount":                    amount,
-        "slippageBps":               int(slippage * 100),
+        "slippageBps":               int(slippage * 150),
         "onlyDirectRoutes":          "false",
         "restrictIntermediateTokens": "true",
     }
