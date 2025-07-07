@@ -193,29 +193,30 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
 # Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
-async def send_transaction(raw_tx_bytes: bytes, keypair) -> str:
-    """
-    raw_tx_bytes: the bytes you got back from get_swap_transaction(...)
-    keypair:     only used to pass your pubkey into get_swap_transaction;
-                 NOT used here at all.
-    """
-    # 1) Sanity check
-    if not isinstance(raw_tx_bytes, (bytes, bytearray)):
-        raise Exception(f"raw_tx_bytes must be bytes, got {type(raw_tx_bytes)}")
+async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
+    # 1) Deserialize the unsigned transaction from Jupiter
+    unsigned_tx = VersionedTransaction.from_bytes(raw_tx_bytes)
 
-    # 2) Fire off the signed transaction directly
-    #    Note: solana-py autosends the bytes you hand it; no further signing.
-    sig_resp = await client.send_raw_transaction(
-        raw_tx_bytes,
-        opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed)
+    # 2) Extract the message that needs to be signed
+    msg: MessageV0 = unsigned_tx.message
+    sig = keypair.sign_message(msg.serialize())
+
+    # 3) Create a new VersionedTransaction with the signature inserted
+    signed_tx = VersionedTransaction(msg, [sig])
+
+    # 4) Serialize and send
+    raw_signed = bytes(signed_tx)
+
+    resp: SendTransactionResp = await client.send_raw_transaction(
+        raw_signed,
+        opts=TxOpts(skip_preflight=False, preflight_commitment=Confirmed),
     )
-    sig = sig_resp.value
+    sig = resp.value
     print(f"[TXN] Sent:      {sig}")
 
-    # 3) Wait for it to land
+    # 5) Confirm
     await client.confirm_transaction(sig, commitment=Confirmed)
     print(f"[TXN] Confirmed: {sig}")
-
     return sig
     
     
