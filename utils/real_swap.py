@@ -194,17 +194,41 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
 # Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
-async def send_transaction(raw_tx_bytes: bytes) -> str:
-    # ... (rest of the function remains the same)
-
+async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     try:
+        print("[DEBUG] Step 1: Deserializing transaction bytes from Jupiter...")
+        unsigned_tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
+        print("[DEBUG] Deserialization complete.")
+        print(f"[DEBUG] Unsigned transaction:\n{unsigned_tx}")
+
+        print("\n[DEBUG] Step 2: Extracting MessageV0 from VersionedTransaction...")
+        message: MessageV0 = unsigned_tx.message
+        print("[DEBUG] Extracted message:")
+        print(message)
+
+        print("\n[DEBUG] Step 3: Signing the message with keypair...")
+        sig: Signature = keypair.sign_message(message.to_bytes())
+        print(f"[DEBUG] Signature:\n{sig}")
+
+        print("\n[DEBUG] Step 4: Constructing signed VersionedTransaction...")
+        signed_tx = VersionedTransaction(message, [sig])
+        print("[DEBUG] Signed transaction constructed:")
+        print(signed_tx)
+
+        print("\n[DEBUG] Step 5: Serializing signed transaction to bytes...")
+        raw_signed = bytes(signed_tx)
+        print(f"[DEBUG] Serialized signed transaction (len={len(raw_signed)} bytes)")
+
+        print("\n[DEBUG] Step 6: Sending transaction to Solana mainnet...")
         resp = await client.send_raw_transaction(
-            raw_tx_bytes,
+            raw_signed,
             opts=TxOpts(skip_preflight=False, preflight_commitment=Confirmed),
         )
+
         sig = resp.value
         print(f"[TXN] Sent: {sig}")
 
+        print("\n[DEBUG] Step 7: Awaiting confirmation...")
         await client.confirm_transaction(sig, commitment=Confirmed)
         print(f"[TXN] Confirmed: {sig}")
         return sig
