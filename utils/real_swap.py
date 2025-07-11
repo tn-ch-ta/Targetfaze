@@ -141,6 +141,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
         "wrapUnwrapSOL": True,
         "dynamicComputeUnitLimit": True,
         "dynamicSlippage": True,
+        "simulateTx": False,
         "prioritizationFeeLamports": {
             "priorityLevelWithMaxLamports": {
                 "maxLamports": 1_000_000,
