@@ -194,28 +194,23 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 # Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
 async def send_transaction(raw_tx_bytes: bytes) -> str:
-    """
-    raw_tx_bytes: the fully-signed, versioned transaction bytes returned
-                  by get_swap_transaction(...)
-    Returns:      the cluster signature string.
-    """
-    # sanity check
-    if not isinstance(raw_tx_bytes, (bytes, bytearray)):
-        raise Exception(f"raw_tx_bytes must be bytes, got {type(raw_tx_bytes)}")
+    # ... (rest of the function remains the same)
 
-    # 1) Push straight to RPC—no deserialization, no signing, no messing with keypairs
-    resp = await client.send_raw_transaction(
-        raw_tx_bytes,
-        opts=TxOpts(skip_preflight=False, preflight_commitment=Confirmed),
-    )
-    sig = resp.value
-    print(f"[TXN] Sent:      {sig}")
+    try:
+        resp = await client.send_raw_transaction(
+            raw_tx_bytes,
+            opts=TxOpts(skip_preflight=False, preflight_commitment=Confirmed),
+        )
+        sig = resp.value
+        print(f"[TXN] Sent: {sig}")
 
-    # 2) Wait for confirmation
-    await client.confirm_transaction(sig, commitment=Confirmed)
-    print(f"[TXN] Confirmed: {sig}")
+        await client.confirm_transaction(sig, commitment=Confirmed)
+        print(f"[TXN] Confirmed: {sig}")
+        return sig
 
-    return sig
+    except Exception as e:
+        print(f"[TXN] Error: {e}")
+        return None
     
     
 # Confirm Signature
