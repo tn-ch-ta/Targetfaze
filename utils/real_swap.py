@@ -83,7 +83,7 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
     except Exception as e:
         raise Exception(f"[ERROR] Keypair.from_bytes failed: {e}")
 
-    print(f"[DEBUG] Loaded Keypair, pubkey={kp.pubkey()}")
+    print(f"[DEBUG] Loaded Keypair, pubkey={keypair.pubkey()}")
     return keypair
 
 
