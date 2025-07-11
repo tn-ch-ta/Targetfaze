@@ -274,7 +274,7 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        sig = await send_transaction(raw_tx_bytes)
+        sig = await send_transaction(raw_tx_bytes, kp)
         success = await confirm_signature(sig, client)
         if not success:
             raise Exception("[ERROR] Transaction failed after submission")
@@ -319,7 +319,7 @@ async def sell_token_real(private_key: str, mint: str):
     raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        sig = await send_transaction(raw_tx_bytes)
+        sig = await send_transaction(raw_tx_bytes, kp)
         success = await confirm_signature(sig, client)
         if not success:
             raise Exception("[ERROR] Transaction failed after submission")
