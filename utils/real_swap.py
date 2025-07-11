@@ -79,12 +79,12 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
         raise ValueError(f"[ERROR] Decoded key must be 64 bytes, got {len(raw_bytes)}")
 
     try:
-        kp = Keypair.from_bytes(raw_bytes)
+        keypair = Keypair.from_bytes(raw_bytes)
     except Exception as e:
         raise Exception(f"[ERROR] Keypair.from_bytes failed: {e}")
 
     print(f"[DEBUG] Loaded Keypair, pubkey={kp.pubkey()}")
-    return kp
+    return keypair
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -196,7 +196,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
 # Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
-async def send_transaction(raw_tx_bytes: bytes, keypair: kp) -> str:
+async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     try:
         print("[DEBUG] Step 1: Deserializing transaction bytes from Jupiter...")
         unsigned_tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
