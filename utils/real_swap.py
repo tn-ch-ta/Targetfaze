@@ -214,7 +214,8 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         print(f"[DEBUG] Signature:\n{sig}")
 
         print("\n[DEBUG] Step 4: Constructing Presigner...")
-        presigner = Presigner(keypair.pubkey(), sig)
+        pubkey = keypair.pubkey()
+        presigner = Presigner(pubkey, sig)
         
         print("[DEBUG] Step 5: Reconstructing signed VersionedTransaction...")
         signed_tx = VersionedTransaction(message, [presigner])
