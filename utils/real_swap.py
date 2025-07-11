@@ -213,17 +213,19 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         sig: Signature = keypair.sign_message(bytes(message))
         print(f"[DEBUG] Signature:\n{sig}")
 
-        print("\n[DEBUG] Step 4: Constructing signed VersionedTransaction...")
+        print("\n[DEBUG] Step 4: Constructing Presigner...")
         presigner = Presigner(keypair.pubkey(), sig)
+        
+        print("[DEBUG] Step 5: Reconstructing signed VersionedTransaction...")
         signed_tx = VersionedTransaction(message, [presigner])
         print("[DEBUG] Signed transaction constructed:")
         print(signed_tx)
 
-        print("\n[DEBUG] Step 5: Serializing signed transaction to bytes...")
+        print("\n[DEBUG] Step 6: Serializing signed transaction to bytes...")
         raw_signed = bytes(signed_tx)
         print(f"[DEBUG] Serialized signed transaction (len={len(raw_signed)} bytes)")
 
-        print("\n[DEBUG] Step 6: Sending transaction to Solana mainnet...")
+        print("\n[DEBUG] Step 7: Sending transaction to Solana mainnet...")
         resp = await client.send_raw_transaction(
             raw_signed,
             opts=TxOpts(skip_preflight=False, preflight_commitment=Confirmed),
@@ -232,7 +234,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         sig = resp.value
         print(f"[TXN] Sent: {sig}")
 
-        print("\n[DEBUG] Step 7: Awaiting confirmation...")
+        print("\n[DEBUG] Step 8: Awaiting confirmation...")
         await client.confirm_transaction(sig, commitment=Confirmed)
         print(f"[TXN] Confirmed: {sig}")
         return sig
