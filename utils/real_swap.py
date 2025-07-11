@@ -193,30 +193,28 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
 # Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
-async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
-    # 1) Deserialize the unsigned transaction from Jupiter
-    unsigned_tx = VersionedTransaction.from_bytes(raw_tx_bytes)
+async def send_transaction(raw_tx_bytes: bytes) -> str:
+    """
+    raw_tx_bytes: the fully-signed, versioned transaction bytes returned
+                  by get_swap_transaction(...)
+    Returns:      the cluster signature string.
+    """
+    # sanity check
+    if not isinstance(raw_tx_bytes, (bytes, bytearray)):
+        raise Exception(f"raw_tx_bytes must be bytes, got {type(raw_tx_bytes)}")
 
-    # 2) Extract the message that needs to be signed
-    msg: MessageV0 = unsigned_tx.message
-    sig = keypair.sign_message(msg.serialize())
-
-    # 3) Create a new VersionedTransaction with the signature inserted
-    signed_tx = VersionedTransaction(msg, [sig])
-
-    # 4) Serialize and send
-    raw_signed = bytes(signed_tx)
-
-    resp: SendTransactionResp = await client.send_raw_transaction(
-        raw_signed,
-        opts=TxOpts(skip_preflight=False, preflight_commitment=Confirmed),
+    # 1) Push straight to RPC—no deserialization, no signing, no messing with keypairs
+    resp = await client.send_raw_transaction(
+        raw_tx_bytes,
+        opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed),
     )
     sig = resp.value
     print(f"[TXN] Sent:      {sig}")
 
-    # 5) Confirm
+    # 2) Wait for confirmation
     await client.confirm_transaction(sig, commitment=Confirmed)
     print(f"[TXN] Confirmed: {sig}")
+
     return sig
     
     
@@ -254,7 +252,7 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        sig = await send_transaction(raw_tx_bytes, kp)
+        sig = await send_transaction(raw_tx_bytes)
         success = await confirm_signature(sig, client)
         if not success:
             raise Exception("[ERROR] Transaction failed after submission")
@@ -299,7 +297,7 @@ async def sell_token_real(private_key: str, mint: str):
     raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        sig = await send_transaction(raw_tx_bytes, kp)
+        sig = await send_transaction(raw_tx_bytes)
         success = await confirm_signature(sig, client)
         if not success:
             raise Exception("[ERROR] Transaction failed after submission")
