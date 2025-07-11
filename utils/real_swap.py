@@ -206,7 +206,7 @@ async def send_transaction(raw_tx_bytes: bytes) -> str:
     # 1) Push straight to RPC—no deserialization, no signing, no messing with keypairs
     resp = await client.send_raw_transaction(
         raw_tx_bytes,
-        opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed),
+        opts=TxOpts(skip_preflight=False, preflight_commitment=Confirmed),
     )
     sig = resp.value
     print(f"[TXN] Sent:      {sig}")
