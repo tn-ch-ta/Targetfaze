@@ -209,7 +209,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         print(message)
 
         print("\n[DEBUG] Step 3: Signing the message with keypair...")
-        sig: Signature = keypair.sign_message(message.to_bytes())
+        sig: Signature = keypair.sign_message(bytes(message))
         print(f"[DEBUG] Signature:\n{sig}")
 
         print("\n[DEBUG] Step 4: Constructing signed VersionedTransaction...")
