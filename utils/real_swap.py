@@ -217,20 +217,10 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         presigner = Presigner(keypair.pubkey(), sig)
         print(f"[DEBUG] ✅ Presigner constructed successfully.")
         print(f"[DEBUG]     pubkey: {presigner.pubkey()}")
-        print(f"[DEBUG]     sig: {presigner.sig()}")
 
     except Exception as e:
         print(f"[ERROR] Presigner construction failed: {e}")
-
-        # Extra introspection
-        print(f"[DEBUG] keypair.pubkey() raw: {keypair.pubkey()}, type: {type(keypair.pubkey())}")
-        print(f"[DEBUG] sig raw: {sig}, type: {type(sig)}")
-
-        # If either is wrong, show a warning
-        if not isinstance(keypair.pubkey(), Pubkey):
-            print("[WARN] keypair.pubkey() is not a solders.pubkey.Pubkey")
-        if not isinstance(sig, Signature):
-            print("[WARN] sig is not a solders.signature.Signature")
+        
         
         print("[DEBUG] Step 5: Reconstructing signed VersionedTransaction...")
         signed_tx = VersionedTransaction(message, [presigner])
