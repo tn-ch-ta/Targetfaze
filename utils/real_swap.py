@@ -237,12 +237,12 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         
 
         print(f"[DEBUG] Step 5 Replacing signature at orig_sigs with your signed message...")
-        orig_sigs = sig
+        orig_sigs[my_index] = sig
         print(f"[DEBUG] ✅ Signatures after replacement: {[str(s) for s in orig_sigs]}")
         
         print("[DEBUG] Step 6: Reconstructing signed VersionedTransaction...")
         try:
-            signed_tx = VersionedTransaction(message, orig_sigs)
+            signed_tx = VersionedTransaction(message, [sig])
             print("[DEBUG] Signed transaction constructed:")
             print(signed_tx)
         except Exception as e:
