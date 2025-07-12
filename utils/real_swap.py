@@ -200,7 +200,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> tup
 
 # Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
-async def send_transaction(raw_tx_bytes: tx_bytes, keypair: Keypair) -> str:
+async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     try:
         print("[DEBUG] Step 1: Deserializing transaction bytes from Jupiter...")
         try:
