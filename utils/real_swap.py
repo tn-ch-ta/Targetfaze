@@ -200,7 +200,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> tup
 
 # Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
-async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
+async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair, request_id: str) -> str:
     try:
         print("[DEBUG] Step 1: Deserializing transaction bytes from Jupiter...")
         try:
@@ -276,7 +276,7 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     raw_tx_bytes, request_id = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        txid = await send_transaction(raw_tx_bytes, kp)
+        txid = await send_transaction(raw_tx_bytes, kp, request_id)
         if not txid:
             raise Exception("Transaction failed or returned no txid.")
     except Exception as e:
@@ -320,7 +320,7 @@ async def sell_token_real(private_key: str, mint: str):
     raw_tx_bytes, request_id = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        txid = await send_transaction(raw_tx_bytes, kp)
+        txid = await send_transaction(raw_tx_bytes, kp, request_id)
         if not txid:
             raise Exception("Transaction failed or returned no txid.")
     except Exception as e:
