@@ -210,7 +210,6 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
             print(f"[ERROR] Failed to Deserialize: {e}")
             return None
     
-    
         print("\n[DEBUG] Step 2: Extracting MessageV0 from VersionedTransaction...")
         message: MessageV0 = unsigned_tx.message
         header = message.header
@@ -221,82 +220,50 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
 
         print("\n[DEBUG] Step 3: Signing the message with keypair...")
         sig: Signature = keypair.sign_message(bytes(message))
-        print(f"[DEBUG] Signature:\n{sig}")
-        
-        # 4) Find your signer index in the account_keys
-        print("[DEBUG] Step 4: Searching for your pubkey in account_keys...")
-        for i, pk in enumerate(message.account_keys):
-            print(f"[DEBUG] Index {i}: {pk}")
-        my_index = next(
-            i for i, pk in enumerate(message.account_keys)
-            if pk == keypair.pubkey()
-        )
-        print(f"[DEBUG] ✅ Your pubkey found at index: {my_index}")
+        print(f"[DEBUG] ✅ Signature: {sig}")
 
-        # 5) Copy existing signatures (Vec<Signature>) to a mutable list
-        orig_sigs = list(unsigned_tx.signatures)
-        print(f"[DEBUG] Original Jupiter signatures: {[str(sig) for sig in orig_sigs]}")
-        
+        # Step 4: Encode signature in base64
+        print("\n[DEBUG] Step 4: Encoding signature in base64...")
+        base64_sig = base64.b64encode(bytes(sig)).decode()
+        print(f"[DEBUG] Base64 Signature: {base64_sig}")
 
-        print(f"[DEBUG] Step 5 Replacing signature at orig_sigs with your signed message...")
-        orig_sigs[my_index] = sig
-        print(f"[DEBUG] ✅ Signatures after replacement: {[str(s) for s in orig_sigs]}")
-        
-        print("[DEBUG] Step 6: Using modified unsigned_tx with replaced signature...")
-        try:
-            # Build a new signed transaction using the original message and your real signature
-            signed_tx = VersionedTransaction(unsigned_tx.message, orig_sigs)
+        # Step 5: Submit to Jupiter's execute_transaction
+        print("\n[DEBUG] Step 5: Sending to Jupiter /v6/execute_transaction...")
 
-            print("[DEBUG] Signed transaction ready.")
-            print(signed_tx)
-        except Exception as e:
-            print(f"[ERROR] Failed to create Signed Transaction: {e}")
-            return None
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://quote-api.jup.ag/v6/execute_transaction",
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                json={
+                    "userPublicKey": str(keypair.pubkey()),
+                    "signature": base64_sig
+                }
+            ) as resp:
+                resp_data = await resp.json()
+                print("[DEBUG] Jupiter Response:")
+                print(resp_data)
 
-        print("\n[DEBUG] Step 7: Serializing signed transaction to bytes...")
-        raw_signed = bytes(signed_tx)
-        print(f"[DEBUG] Serialized signed transaction (len={len(raw_signed)} bytes)")
+                if "error" in resp_data:
+                    print(f"[ERROR] Jupiter returned error: {resp_data['error']}")
+                    return None
 
-        print("\n[DEBUG] Step 8: Sending transaction to Solana mainnet...")
-        resp = await client.send_raw_transaction(
-            raw_signed,
-            opts=TxOpts(skip_preflight=False, preflight_commitment=Confirmed),
-        )
+                txid = resp_data.get("txid")
+                if not txid:
+                    print("[ERROR] No txid in response.")
+                    return None
 
-        sig = resp.value
-        print(f"[TXN] Sent: {sig}")
-
-        print("\n[DEBUG] Step 9: Awaiting confirmation...")
-        await client.confirm_transaction(sig, commitment=Confirmed)
-        print(f"[TXN] Confirmed: {sig}")
-        return sig
+                print(f"[✅] Transaction sent! Txid: {txid}")
+                return txid
 
     except Exception as e:
-        print(f"[TXN] Error: {e}")
+        print(f"[FATAL ERROR] send_transaction failed: {e}")
         return None
     
     
-# Confirm Signature
-#--------------------------
-async def confirm_signature(sig: str, client: AsyncClient) -> bool:
-    """
-    Check if a given transaction signature is confirmed and successful.
 
-    Returns True if the transaction succeeded, False if failed or not found.
-    """
-    resp = await client.get_signature_statuses([sig])
-    status = resp.value[0]
-
-    if status is None:
-        print(f"[ERROR] Signature {sig} not found on chain.")
-        return False
-
-    if status.err is not None:
-        print(f"[ERROR] Transaction {sig} failed with error: {status.err}")
-        return False
-
-    print(f"[INFO] Transaction {sig} confirmed successfully.")
-    return True
 
 # ──────────────────────────────────────────────────────────────────────────────
 # High-level helper to buy a token with real Jupiter swap
@@ -310,14 +277,13 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        sig = await send_transaction(raw_tx_bytes, kp)
-        success = await confirm_signature(sig, client)
-        if not success:
-            raise Exception("[ERROR] Transaction failed after submission")
+        txid = await send_transaction(raw_tx_bytes, kp)
+        if not txid:
+            raise Exception("Transaction failed or returned no txid.")
     except Exception as e:
         raise Exception(f"[ERROR] Final send_transaction (buy) failed: {e}")
 
-    print(f"[BUY] Completed buy of {mint}, signature: {sig}")
+    print(f"[BUY] Completed buy of {mint}, Transaction ID: {txid}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -356,13 +322,11 @@ async def sell_token_real(private_key: str, mint: str):
 
     try:
         sig = await send_transaction(raw_tx_bytes, kp)
-        success = await confirm_signature(sig, client)
-        if not success:
-            raise Exception("[ERROR] Transaction failed after submission")
+        
     except Exception as e:
         raise Exception(f"[ERROR] Final send_transaction (sell) failed: {e}")
 
-    print(f"[SELL] Completed sell of {mint}, signature: {sig}")
+    print(f"[SELL] Completed sell of {mint}, Transaction ID: {txid}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
