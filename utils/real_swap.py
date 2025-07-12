@@ -212,22 +212,33 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         print("\n[DEBUG] Step 3: Signing the message with keypair...")
         sig: Signature = keypair.sign_message(bytes(message))
         print(f"[DEBUG] Signature:\n{sig}")
-
-        print("\n[DEBUG] Step 4: Constructing Presigner...")
-        presigner = Presigner(keypair.pubkey(), sig)
-        print(f"[DEBUG] ✅ Presigner constructed successfully.")
-        print(f"[DEBUG]     pubkey: {presigner.pubkey()}")
         
-        print("[DEBUG] Step 5: Wrapping Presigner in Signer...")
-        try:
-            signer = Signer.from_presigner(presigner)
-            print("[DEBUG] ✅ Signer wrapped successfully.")
-        except Exception as inner_e:
-            print(f"[ERROR] Signer.from_presigner failed: {inner_e}")
-            return None
+        # 4) Find your signer index in the account_keys
+        print("[DEBUG] Step 4: Searching for your pubkey in account_keys...")
+        for i, pk in enumerate(message.account_keys):
+            print(f"[DEBUG] Index {i}: {pk}")
+        my_index = next(
+            i for i, pk in enumerate(message.account_keys)
+            if pk == keypair.pubkey()
+        )
+        print(f"[DEBUG] ✅ Your pubkey found at index: {my_index}")
+
+        # 5) Copy existing signatures (Vec<Signature>) to a mutable list
+        orig_sigs = list(tx.signatures)
+        print(f"[DEBUG] Original Jupiter signatures: {[str(sig) for sig in orig_sigs]}")
+
+        # (should already be the right length, but just in case…)
+        if len(orig_sigs) < len(message.account_keys):
+            needed = len(message.account_keys) - len(orig_sigs)
+            print(f"[DEBUG] Padding {needed} default signatures...")
+            orig_sigs += [Signature.default()] * needed
+
+        print(f"[DEBUG] Step 5 Replacing signature at index {my_index} with your signed message...")
+        orig_sigs[my_index] = sig
+        print(f"[DEBUG] ✅ Signatures after replacement: {[str(s) for s in orig_sigs]}")
         
         print("[DEBUG] Step 6: Reconstructing signed VersionedTransaction...")
-        signed_tx = VersionedTransaction(message, [signer])
+        signed_tx = VersionedTransaction(message, orig_sigs)
         print("[DEBUG] Signed transaction constructed:")
         print(signed_tx)
 
