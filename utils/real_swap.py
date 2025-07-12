@@ -124,18 +124,19 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 2: Build a real transaction from the quoteResponse and decode into raw bytes
 # ──────────────────────────────────────────────────────────────────────────────
-async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> bytes:
+async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> tuple[bytes, str]:
     """
-    Given Jupiter’s quoteResponse, send to /swap to get the serialized VersionedTransaction.
-    Jupiter may return the transaction as either:
-      • a Base64-encoded string
-      • a raw array of bytes (list[int])
-    We decode whichever form we see into raw bytes.
-    """
-    # 1) Log boolean fields (debug)
-    log_bool_fields(quote_response)
+    Given Jupiter’s quoteResponse, send to /swap to get the serialized VersionedTransaction + requestId.
 
-    # 2) Remove None values
+    Returns:
+        - swapTransaction (bytes)
+        - requestId (str) for use in /trigger/v1/execute
+    """
+    # Generate a UUID
+    request_id = str(uuid.uuid4())
+    
+    log_bool_fields(quote_response)
+    
     quote_clean = clean_none(quote_response)
 
     payload = {
@@ -147,6 +148,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
         "dynamicComputeUnitLimit": True,
         "dynamicSlippage": True,
         "simulateTx": False,
+        "requestId": request_id,  # ✅ Attach it here
         "prioritizationFeeLamports": {
             "priorityLevelWithMaxLamports": {
                 "maxLamports": 1_000_000,
@@ -160,7 +162,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
     async with aiohttp.ClientSession() as session:
         async with session.post(JUPITER_SWAP_API, json=payload) as resp:
-            status, url = resp.status, resp.url
+            status, url = resp.status, str(resp.url)
             print(f"[DEBUG] Swap HTTP status: {status}, URL: {url}")
             try:
                 json_data = await resp.json()
@@ -170,17 +172,15 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
     print(f"[DEBUG] Swap API response:\n{json.dumps(json_data, indent=2)}")
 
+    # Get and decode swapTransaction
     tx_raw = json_data.get("swapTransaction")
     if not tx_raw:
         raise Exception(f"Jupiter swap failed, no transaction returned: {json_data}")
 
-    # Jupiter returns the transaction as a Base64-encoded string (“AQAAAAAA…”),
-    # or as a list of ints. We decode accordingly:
-
     if isinstance(tx_raw, str):
         print(f"[DEBUG] swapTransaction is a Base64 string (len={len(tx_raw)})")
         try:
-            return base64.b64decode(tx_raw)
+            tx_bytes = base64.b64decode(tx_raw)
         except Exception as e:
             snippet = tx_raw[:10] + ("..." if len(tx_raw) > 10 else "")
             raise Exception(f"[ERROR] base64.b64decode failed on swapTransaction (“{snippet}”): {e}")
@@ -188,18 +188,19 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
     elif isinstance(tx_raw, list):
         print(f"[DEBUG] swapTransaction is a raw byte list (len={len(tx_raw)})")
         try:
-            return bytes(tx_raw)
+            tx_bytes = bytes(tx_raw)
         except Exception as e:
             raise Exception(f"[ERROR] Converting swapTransaction list[int] → bytes failed: {e}")
-
     else:
         raise Exception(f"[ERROR] Unexpected swapTransaction format: {type(tx_raw)}")
+
+    return tx_bytes, request_id
 
 
 
 # Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
-async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
+async def send_transaction(raw_tx_bytes: tx_bytes, keypair: Keypair) -> str:
     try:
         print("[DEBUG] Step 1: Deserializing transaction bytes from Jupiter...")
         try:
@@ -238,7 +239,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
                     "Accept": "application/json"
                 },
                 json={
-                    "requestId": str(uuid.uuid4()),  # Optional but recommended
+                    "requestId": request_id,  # Optional but recommended
                     "signedTransaction": base64_sig  # Signature only
                 }
             ) as resp:
@@ -272,7 +273,7 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     lamports = int(sol_amount * 1e9)
 
     quote_response = await get_swap_route(SOL_MINT, mint, lamports)
-    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes, request_id = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
         txid = await send_transaction(raw_tx_bytes, kp)
@@ -316,7 +317,7 @@ async def sell_token_real(private_key: str, mint: str):
 
     # 4) Get a quote: token → SOL (still quote for full amount)
     quote_response = await get_swap_route(mint, SOL_MINT, balance)
-    raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes, request_id = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
         txid = await send_transaction(raw_tx_bytes, kp)
