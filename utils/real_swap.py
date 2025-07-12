@@ -218,18 +218,24 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         print(f"[DEBUG] ✅ Presigner constructed successfully.")
         print(f"[DEBUG]     pubkey: {presigner.pubkey()}")
         
+        print("[DEBUG] Step 5: Wrapping Presigner in Signer...")
+        try:
+            signer = Signer.from_presigner(presigner)
+            print("[DEBUG] ✅ Signer wrapped successfully.")
+        except Exception as inner_e:
+            print(f"[ERROR] Signer.from_presigner failed: {inner_e}")
+            return None
         
-        print("[DEBUG] Step 5: Reconstructing signed VersionedTransaction...")
-        signer = Signer.from_presigner(presigner)
-        signed_tx = VersionedTransaction(message, [Signer])
+        print("[DEBUG] Step 6: Reconstructing signed VersionedTransaction...")
+        signed_tx = VersionedTransaction(message, [signer])
         print("[DEBUG] Signed transaction constructed:")
         print(signed_tx)
 
-        print("\n[DEBUG] Step 6: Serializing signed transaction to bytes...")
+        print("\n[DEBUG] Step 7: Serializing signed transaction to bytes...")
         raw_signed = bytes(signed_tx)
         print(f"[DEBUG] Serialized signed transaction (len={len(raw_signed)} bytes)")
 
-        print("\n[DEBUG] Step 7: Sending transaction to Solana mainnet...")
+        print("\n[DEBUG] Step 8: Sending transaction to Solana mainnet...")
         resp = await client.send_raw_transaction(
             raw_signed,
             opts=TxOpts(skip_preflight=False, preflight_commitment=Confirmed),
@@ -238,7 +244,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         sig = resp.value
         print(f"[TXN] Sent: {sig}")
 
-        print("\n[DEBUG] Step 8: Awaiting confirmation...")
+        print("\n[DEBUG] Step 9: Awaiting confirmation...")
         await client.confirm_transaction(sig, commitment=Confirmed)
         print(f"[TXN] Confirmed: {sig}")
         return sig
