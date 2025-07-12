@@ -224,7 +224,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         print(f"[DEBUG] ✅ Your pubkey found at index: {my_index}")
 
         # 5) Copy existing signatures (Vec<Signature>) to a mutable list
-        orig_sigs = list(tx.signatures)
+        orig_sigs = list(unsigned_tx.signatures)
         print(f"[DEBUG] Original Jupiter signatures: {[str(sig) for sig in orig_sigs]}")
 
         # (should already be the right length, but just in case…)
