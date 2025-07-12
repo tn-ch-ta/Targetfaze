@@ -310,19 +310,20 @@ async def sell_token_real(private_key: str, mint: str):
         print("[SELL] Nothing to sell.")
         return
 
-    # 3) Compute 98% of balance (but we still quote for full `balance`; Jupiter will deduct fee)
+    # 3) Compute 98% of balance (Jupiter will handle exact slippage deduction)
     sell_amount = int(balance * 0.98)
     if sell_amount == 0:
         print("[SELL] 98% of balance is 0, skipping.")
         return
 
-    # 4) Get a quote: token → SOL
+    # 4) Get a quote: token → SOL (still quote for full amount)
     quote_response = await get_swap_route(mint, SOL_MINT, balance)
     raw_tx_bytes   = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        sig = await send_transaction(raw_tx_bytes, kp)
-        
+        txid = await send_transaction(raw_tx_bytes, kp)
+        if not txid:
+            raise Exception("Transaction failed or returned no txid.")
     except Exception as e:
         raise Exception(f"[ERROR] Final send_transaction (sell) failed: {e}")
 
