@@ -244,8 +244,9 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         
         print("[DEBUG] Step 6: Using modified unsigned_tx with replaced signature...")
         try:
-            unsigned_tx.signatures = orig_sigs  # Make sure the signatures list is updated
-            signed_tx = unsigned_tx
+            # Build a new signed transaction using the original message and your real signature
+            signed_tx = VersionedTransaction(unsigned_tx.message, orig_sigs)
+
             print("[DEBUG] Signed transaction ready.")
             print(signed_tx)
         except Exception as e:
