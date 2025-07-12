@@ -142,7 +142,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
         "quoteResponse": quote_clean,
         "userPublicKey": str(user_pubkey),
         "wrapUnwrapSOL": True,
-        "useSharedAccounts": False,      <-- IMPORTANT
+        "useSharedAccounts": False,
         "usePriorityFee": False,
         "dynamicComputeUnitLimit": True,
         "dynamicSlippage": True,
