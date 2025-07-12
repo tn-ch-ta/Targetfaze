@@ -230,41 +230,39 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         # Step 5: Submit to Jupiter's execute_transaction
         print("\n[DEBUG] Step 5: Sending to Jupiter /trigger/v1/execute...")
         
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://lite-api.jup.ag/trigger/v1/execute",
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                json={
+                    "requestId": str(uuid.uuid4()),  # Optional but recommended
+                    "signedTransaction": base64_sig  # Signature only
+                }
+            ) as resp:
+                if resp.status != 200:
+                    raise Exception(f"HTTP {resp.status}: {await resp.text()}")
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://lite-api.jup.ag/trigger/v1/execute",
-                    headers={
-                        "Content-Type": "application/json",
-                        "Accept": "application/json"
-                    },
-                    json={
-                        "requestId": str(uuid.uuid4()),  # Optional but recommended
-                        "signedTransaction": base64_sig  # Signature only
-                    }
-                ) as resp:
-                    if resp.status != 200:
-                        raise Exception(f"HTTP {resp.status}: {await resp.text()}")
+                resp_data = await resp.json()
+                print("[DEBUG] Jupiter Response:")
+                print(resp_data)
 
-                    resp_data = await resp.json()
-                    print("[DEBUG] Jupiter Response:")
-                    print(resp_data)
+                if "error" in resp_data:
+                    print(f"[ERROR] Jupiter returned error: {resp_data['error']}")
+                    return None
 
-                    if "error" in resp_data:
-                        print(f"[ERROR] Jupiter returned error: {resp_data['error']}")
-                        return None
+                txid = resp_data.get("txid")
+                if not txid:
+                    print("[ERROR] No txid in response.")
+                    return None
 
-                    txid = resp_data.get("txid")
-                    if not txid:
-                        print("[ERROR] No txid in response.")
-                        return None
-
-                    print(f"[✅] Transaction sent! Txid: {txid}")
-                    return txid
-        except Exception as e:
-            print(f"[FATAL ERROR] send_transaction failed: {e}")
-            return None
+                print(f"[✅] Transaction sent! Txid: {txid}")
+                return txid
+    except Exception as e:
+        print(f"[FATAL ERROR] send_transaction failed: {e}")
+        return None
 # ──────────────────────────────────────────────────────────────────────────────
 # High-level helper to buy a token with real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
