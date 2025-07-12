@@ -272,7 +272,7 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
 
     quote_response = await get_swap_route(SOL_MINT, mint, lamports)
     # Step 1.5: Generate request_id here and pass it forward
-    request_id = str(uuid.uuid4()
+    request_id = str(uuid.uuid4())
     raw_tx_bytes = await get_swap_transaction(quote_response, kp.pubkey(), request_id)
 
     try:
@@ -318,7 +318,7 @@ async def sell_token_real(private_key: str, mint: str):
     # 4) Get a quote: token → SOL (still quote for full amount)
     quote_response = await get_swap_route(mint, SOL_MINT, balance)
     # Step 1.5: Generate request_id here and pass it forward
-    request_id = str(uuid.uuid4()
+    request_id = str(uuid.uuid4())
     raw_tx_bytes = await get_swap_transaction(quote_response, kp.pubkey(), request_id)
 
     try:
