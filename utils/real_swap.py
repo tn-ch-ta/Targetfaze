@@ -211,6 +211,9 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     
         print("\n[DEBUG] Step 2: Extracting MessageV0 from VersionedTransaction...")
         message: MessageV0 = unsigned_tx.message
+        header = message.header
+        num_required_sigs = header.num_required_signatures
+        print(f"[DEBUG] num_required_signatures = {num_required_sigs}")
         print("[DEBUG] Extracted message:")
         print(message)
 
@@ -233,8 +236,8 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         print(f"[DEBUG] Original Jupiter signatures: {[str(sig) for sig in orig_sigs]}")
 
         # (should already be the right length, but just in case…)
-        if len(orig_sigs) < len(message.num_required_signatures):
-            needed = len(message.num_required_signatures) - len(orig_sigs)
+        if len(orig_sigs) < len(num_required_sigs):
+            needed = len(num_required_sigs) - len(orig_sigs)
             print(f"[DEBUG] Padding {needed} default signatures...")
             orig_sigs += [Signature.default()] * needed
 
