@@ -234,12 +234,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         # 5) Copy existing signatures (Vec<Signature>) to a mutable list
         orig_sigs = list(unsigned_tx.signatures)
         print(f"[DEBUG] Original Jupiter signatures: {[str(sig) for sig in orig_sigs]}")
-
-        # (should already be the right length, but just in case…)
-        if len(orig_sigs) < len(num_required_sigs):
-            needed = len(num_required_sigs) - len(orig_sigs)
-            print(f"[DEBUG] Padding {needed} default signatures...")
-            orig_sigs += [Signature.default()] * needed
+        
 
         print(f"[DEBUG] Step 5 Replacing signature at index {my_index} with your signed message...")
         orig_sigs[my_index] = sig
