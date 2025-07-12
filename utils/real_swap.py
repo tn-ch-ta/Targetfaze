@@ -217,9 +217,6 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         presigner = Presigner(keypair.pubkey(), sig)
         print(f"[DEBUG] ✅ Presigner constructed successfully.")
         print(f"[DEBUG]     pubkey: {presigner.pubkey()}")
-
-    except Exception as e:
-        print(f"[ERROR] Presigner construction failed: {e}")
         
         
         print("[DEBUG] Step 5: Reconstructing signed VersionedTransaction...")
