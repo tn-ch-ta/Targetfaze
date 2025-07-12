@@ -1,6 +1,6 @@
 python-telegram-bot==20.6
 requests==2.31.0
-solders
+solders>=0.16.0
 solana
 base58
 httpx==0.25.0
