@@ -21,6 +21,7 @@ from solders.transaction import VersionedTransaction
 from solders.message import MessageV0
 from solders.signature import Signature
 from solders.presigner import Presigner
+from solders.signer import Signer
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.types import TxOpts
 from solana.rpc.commitment import Confirmed
@@ -220,7 +221,8 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         
         
         print("[DEBUG] Step 5: Reconstructing signed VersionedTransaction...")
-        signed_tx = VersionedTransaction(message, [presigner])
+        signer = Signer.from_presigner(presigner)
+        signed_tx = VersionedTransaction(message, [Signer])
         print("[DEBUG] Signed transaction constructed:")
         print(signed_tx)
 
