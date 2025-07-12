@@ -124,7 +124,7 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 2: Build a real transaction from the quoteResponse and decode into raw bytes
 # ──────────────────────────────────────────────────────────────────────────────
-async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> tuple[bytes, str]:
+async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey, request_id: str) -> tuple[bytes, str]:
     """
     Given Jupiter’s quoteResponse, send to /swap to get the serialized VersionedTransaction + requestId.
 
@@ -132,8 +132,6 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> tup
         - swapTransaction (bytes)
         - requestId (str) for use in /trigger/v1/execute
     """
-    # Generate a UUID
-    request_id = str(uuid.uuid4())
     
     log_bool_fields(quote_response)
     
@@ -273,7 +271,9 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     lamports = int(sol_amount * 1e9)
 
     quote_response = await get_swap_route(SOL_MINT, mint, lamports)
-    raw_tx_bytes, request_id = await get_swap_transaction(quote_response, kp.pubkey())
+    # Step 1.5: Generate request_id here and pass it forward
+    request_id = str(uuid.uuid4()
+    raw_tx_bytes = await get_swap_transaction(quote_response, kp.pubkey(), request_id)
 
     try:
         txid = await send_transaction(raw_tx_bytes, kp, request_id)
@@ -317,7 +317,9 @@ async def sell_token_real(private_key: str, mint: str):
 
     # 4) Get a quote: token → SOL (still quote for full amount)
     quote_response = await get_swap_route(mint, SOL_MINT, balance)
-    raw_tx_bytes, request_id = await get_swap_transaction(quote_response, kp.pubkey())
+    # Step 1.5: Generate request_id here and pass it forward
+    request_id = str(uuid.uuid4()
+    raw_tx_bytes = await get_swap_transaction(quote_response, kp.pubkey(), request_id)
 
     try:
         txid = await send_transaction(raw_tx_bytes, kp, request_id)
@@ -325,7 +327,7 @@ async def sell_token_real(private_key: str, mint: str):
             raise Exception("Transaction failed or returned no txid.")
     except Exception as e:
         raise Exception(f"[ERROR] Final send_transaction (sell) failed: {e}")
-
+        
     print(f"[SELL] Completed sell of {mint}, Transaction ID: {txid}")
 
 
