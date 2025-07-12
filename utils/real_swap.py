@@ -236,8 +236,8 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         print(f"[DEBUG] Original Jupiter signatures: {[str(sig) for sig in orig_sigs]}")
         
 
-        print(f"[DEBUG] Step 5 Replacing signature at index {my_index} with your signed message...")
-        orig_sigs[my_index] = sig
+        print(f"[DEBUG] Step 5 Replacing signature at orig_sigs with your signed message...")
+        orig_sigs = sig
         print(f"[DEBUG] ✅ Signatures after replacement: {[str(s) for s in orig_sigs]}")
         
         print("[DEBUG] Step 6: Reconstructing signed VersionedTransaction...")
