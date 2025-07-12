@@ -200,12 +200,18 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     try:
         print("[DEBUG] Step 1: Deserializing transaction bytes from Jupiter...")
-        unsigned_tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
-        print("[DEBUG] Deserialization complete.")
-        print(f"[DEBUG] Unsigned transaction:\n{unsigned_tx}")
-
+        try:
+            unsigned_tx: VersionedTransaction = VersionedTransaction.from_bytes(raw_tx_bytes)
+            print("[DEBUG] Deserialization complete.")
+            print(f"[DEBUG] Unsigned transaction:\n{unsigned_tx}")
+        except Exception as e:
+            print(f"[ERROR] Failed to Deserialize: {e}")
+            return None
+    
+    
         print("\n[DEBUG] Step 2: Extracting MessageV0 from VersionedTransaction...")
         message: MessageV0 = unsigned_tx.message
+        required_sigs = message.header().num_required_signatures
         print("[DEBUG] Extracted message:")
         print(message)
 
@@ -227,9 +233,9 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         orig_sigs = list(unsigned_tx.signatures)
         print(f"[DEBUG] Original Jupiter signatures: {[str(sig) for sig in orig_sigs]}")
 
-        # (should already be the right length, but just in case…)
-        if len(orig_sigs) < len(message.account_keys):
-            needed = len(message.account_keys) - len(orig_sigs)
+        # ✅ Pad only up to required number of signers
+        if len(orig_sigs) < required_sigs:
+            needed = required_sigs - len(orig_sigs)
             print(f"[DEBUG] Padding {needed} default signatures...")
             orig_sigs += [Signature.default()] * needed
 
