@@ -224,7 +224,13 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair, request_id: st
         print(f"[DEBUG] ✅ Signature: {sig}")
         
         print("\n[DEBUG] Step 4: Construct back into VersionedTransaction...")
-        signed_tx = VersionedTransaction.populate(message, [sig])
+        try:
+            signed_tx = VersionedTransaction.populate(message, [sig])
+            print("[DEBUG] Construction complete.")
+            print(f"[DEBUG] Signed Transaction:\n{signed_tx}")
+        except Exception as e:
+            print(f"[ERROR] Failed to Construct: {e}")
+            return None
 
         # Step 4: Encode signature in base64
         print("\n[DEBUG] Step 5: Encoding Signed Tx in base64...")
