@@ -232,47 +232,35 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair, request_id: st
             print(f"[ERROR] Failed to Construct: {e}")
             return None
 
-        # Step 4: Encode signature in base64
-        print("\n[DEBUG] Step 5: Encoding Signed Tx in base64...")
-        base64_sig = base64.b64encode(bytes(signed_tx)).decode()
-        print(f"[DEBUG] Base64 Signature: {base64_sig}")
+
+        print("\n[DEBUG] Step 5: Serializing Signed Tx to bytes...")
+        serialized_bytes = bytes(signed_tx)
+        print(f"[DEBUG] ✅ Serialized bytes.")
         
-        # Step 5: Submit to Jupiter's execute_transaction
-        print("\n[DEBUG] Step 6: Sending to Jupiter /trigger/v1/execute...")
+        if not serialized_bytes.startswith(b'\x01'):
+            raise Exception("Serialized transaction may be invalid (wrong version prefix).")
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://lite-api.jup.ag/trigger/v1/execute",
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                },
-                json={
-                    "requestId": request_id,  # Optional but recommended
-                    "signedTransaction": base64_sig  # Signature only
-                }
-            ) as resp:
-                if resp.status != 200:
-                    raise Exception(f"HTTP {resp.status}: {await resp.text()}")
+        # Step 6: Submit to Solana
+        print("\n[DEBUG] Step 6: Sending to Solana")
+        
+        try:
+            txid = await client.send_raw_transaction(
+                serialized_bytes,
+                opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed)
+            )
+            print(f"[TXN] Sent: {txid}")
+        except Exception as e:
+            raise Exception(f"[ERROR] send_raw_transaction RPC error: {e}")
 
-                resp_data = await resp.json()
-                print("[DEBUG] Jupiter Response:")
-                print(resp_data)
-
-                if "error" in resp_data:
-                    print(f"[ERROR] Jupiter returned error: {resp_data['error']}")
-                    return None
-
-                txid = resp_data.get("txid")
-                if not txid:
-                    print("[ERROR] No txid in response.")
-                    return None
-
-                print(f"[✅] Transaction sent! Txid: {txid}")
-                return txid
-    except Exception as e:
-        print(f"[FATAL ERROR] send_transaction failed: {e}")
-        return None
+        # Step 7: Confirm the transaction
+        print("\n[DEBUG] Step 7: Confirming the TXN")
+        try:
+            await client.confirm_transaction(txid, commitment=Confirmed)
+            print(f"[TXN] Confirmed: {txid}")
+        except Exception as e:
+            raise Exception(f"[ERROR] confirm_transaction failed: {e}")
+            
+        return txid
 # ──────────────────────────────────────────────────────────────────────────────
 # High-level helper to buy a token with real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
@@ -281,15 +269,13 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     kp = get_keypair_from_base58(private_key)
     lamports = int(sol_amount * 1e9)
     
-    # Step 1.5: Generate request_id here and pass it forward
-    request_id = str(uuid.uuid4())
 
-    quote_response = await get_swap_route(SOL_MINT, mint, lamports, request_id=request_id)
+    quote_response = await get_swap_route(SOL_MINT, mint, lamports)
     
-    raw_tx_bytes, request_id = await get_swap_transaction(quote_response, kp.pubkey(), request_id)
+    raw_tx_bytes = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        txid = await send_transaction(raw_tx_bytes, kp, request_id)
+        txid = await send_transaction(raw_tx_bytes, kp)
         if not txid:
             raise Exception("Transaction failed or returned no txid.")
     except Exception as e:
@@ -330,15 +316,12 @@ async def sell_token_real(private_key: str, mint: str):
 
     # 4) Get a quote: token → SOL (still quote for full amount)
     
-    # Step 1.5: Generate request_id here and pass it forward
-    request_id = str(uuid.uuid4())
+    quote_response = await get_swap_route(mint, SOL_MINT, sell_amount)
     
-    quote_response = await get_swap_route(mint, SOL_MINT, balance, request_id=request_id)
-    
-    raw_tx_bytes, request_id = await get_swap_transaction(quote_response, kp.pubkey(), request_id)
+    raw_tx_bytes = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        txid = await send_transaction(raw_tx_bytes, kp, request_id)
+        txid = await send_transaction(raw_tx_bytes, kp)
         if not txid:
             raise Exception("Transaction failed or returned no txid.")
     except Exception as e:
