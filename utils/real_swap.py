@@ -240,10 +240,11 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         print("\n[DEBUG] Step 6: Sending to Solana")
         
         try:
-            txid = await client.send_raw_transaction(
+            resp = await client.send_raw_transaction(
                 serialized_bytes,
                 opts=TxOpts(skip_preflight=True, preflight_commitment=Confirmed)
             )
+            txid = resp.value if hasattr(resp, "value") else resp
             print(f"[TXN] Sent: {txid}")
         except Exception as e:
             raise Exception(f"[ERROR] send_raw_transaction RPC error: {e}")
