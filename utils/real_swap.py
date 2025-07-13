@@ -91,7 +91,7 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 1: Fetch a Jupiter quote (“routePlan”) for swapping `amount` of input_mint → output_mint
 # ──────────────────────────────────────────────────────────────────────────────
-async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 1.0) -> dict:
+async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 1.0, request_id: str = None) -> dict:
     """
     Returns the full JSON response from Jupiter’s /quote endpoint.
     Must contain "routePlan" to be valid.
@@ -105,7 +105,9 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
         "onlyDirectRoutes":          "false",
         "restrictIntermediateTokens": "true",
     }
-
+    if request_id:
+        params["requestId"] = request_id  # ✅ Include in quote if provided
+    
     async with aiohttp.ClientSession() as session:
         async with session.get(JUPITER_QUOTE_API, params=params) as resp:
             try:
@@ -269,10 +271,12 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
     print(f"[BUY] Buying {mint} for {sol_amount} SOL")
     kp = get_keypair_from_base58(private_key)
     lamports = int(sol_amount * 1e9)
-
-    quote_response = await get_swap_route(SOL_MINT, mint, lamports)
+    
     # Step 1.5: Generate request_id here and pass it forward
     request_id = str(uuid.uuid4())
+
+    quote_response = await get_swap_route(SOL_MINT, mint, lamports, request_id=request_id)
+    
     raw_tx_bytes, request_id = await get_swap_transaction(quote_response, kp.pubkey(), request_id)
 
     try:
@@ -316,9 +320,12 @@ async def sell_token_real(private_key: str, mint: str):
         return
 
     # 4) Get a quote: token → SOL (still quote for full amount)
-    quote_response = await get_swap_route(mint, SOL_MINT, balance)
+    
     # Step 1.5: Generate request_id here and pass it forward
     request_id = str(uuid.uuid4())
+    
+    quote_response = await get_swap_route(mint, SOL_MINT, balance, request_id=request_id)
+    
     raw_tx_bytes, request_id = await get_swap_transaction(quote_response, kp.pubkey(), request_id)
 
     try:
