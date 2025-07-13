@@ -261,6 +261,10 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair, request_id: st
             raise Exception(f"[ERROR] confirm_transaction failed: {e}")
             
         return txid
+        
+    except Exception as final_error:
+        print(f"[FATAL ERROR] Send Transaction Failed: {final_error}")
+        return None
 # ──────────────────────────────────────────────────────────────────────────────
 # High-level helper to buy a token with real Jupiter swap
 # ──────────────────────────────────────────────────────────────────────────────
