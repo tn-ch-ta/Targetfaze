@@ -91,7 +91,7 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 1: Fetch a Jupiter quote (“routePlan”) for swapping `amount` of input_mint → output_mint
 # ──────────────────────────────────────────────────────────────────────────────
-async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 1.0, request_id: str = None) -> dict:
+async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 1.0) -> dict:
     """
     Returns the full JSON response from Jupiter’s /quote endpoint.
     Must contain "routePlan" to be valid.
@@ -105,8 +105,6 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
         "onlyDirectRoutes":          "false",
         "restrictIntermediateTokens": "true",
     }
-    if request_id:
-        params["requestId"] = request_id  # ✅ Include in quote if provided
     
     async with aiohttp.ClientSession() as session:
         async with session.get(JUPITER_QUOTE_API, params=params) as resp:
@@ -126,13 +124,12 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 2: Build a real transaction from the quoteResponse and decode into raw bytes
 # ──────────────────────────────────────────────────────────────────────────────
-async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey, request_id: str) -> tuple[bytes, str]:
+async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> bytes:
     """
     Given Jupiter’s quoteResponse, send to /swap to get the serialized VersionedTransaction + requestId.
 
     Returns:
         - swapTransaction (bytes)
-        - requestId (str) for use in /trigger/v1/execute
     """
     
     log_bool_fields(quote_response)
@@ -148,7 +145,6 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey, reques
         "dynamicComputeUnitLimit": True,
         "dynamicSlippage": True,
         "simulateTx": False,
-        "requestId": request_id,  # ✅ Attach it here
         "prioritizationFeeLamports": {
             "priorityLevelWithMaxLamports": {
                 "maxLamports": 1_000_000,
@@ -194,13 +190,13 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey, reques
     else:
         raise Exception(f"[ERROR] Unexpected swapTransaction format: {type(tx_raw)}")
 
-    return tx_bytes, request_id
+    return tx_bytes
 
 
 
 # Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
-async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair, request_id: str) -> str:
+async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     try:
         print("[DEBUG] Step 1: Deserializing transaction bytes from Jupiter...")
         try:
