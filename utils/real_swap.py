@@ -222,14 +222,17 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair, request_id: st
         print("\n[DEBUG] Step 3: Signing the message with keypair...")
         sig: Signature = keypair.sign_message(bytes(message))
         print(f"[DEBUG] ✅ Signature: {sig}")
+        
+        print("\n[DEBUG] Step 4: Construct back into VersionedTransaction...")
+        signed_tx = VersionedTransaction.populate(message, [sig])
 
         # Step 4: Encode signature in base64
-        print("\n[DEBUG] Step 4: Encoding signature in base64...")
-        base64_sig = base64.b64encode(bytes(sig)).decode()
+        print("\n[DEBUG] Step 5: Encoding Signed Tx in base64...")
+        base64_sig = base64.b64encode(bytes(signed_tx)).decode()
         print(f"[DEBUG] Base64 Signature: {base64_sig}")
         
         # Step 5: Submit to Jupiter's execute_transaction
-        print("\n[DEBUG] Step 5: Sending to Jupiter /trigger/v1/execute...")
+        print("\n[DEBUG] Step 6: Sending to Jupiter /trigger/v1/execute...")
         
         async with aiohttp.ClientSession() as session:
             async with session.post(
