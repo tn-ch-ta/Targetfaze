@@ -259,6 +259,8 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
             timeout = 90  # seconds
             poll_interval = 0.5  # seconds
             start = time.time()
+            attempt = 0  # ✅ Defined before use
+            max_attempts = 10
 
             while time.time() - start < timeout:
                 try:
