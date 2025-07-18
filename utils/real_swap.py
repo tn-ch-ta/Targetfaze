@@ -34,7 +34,13 @@ logging.basicConfig(level=logging.INFO)
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
-RPC_URL            = "https://api.mainnet-beta.solana.com"
+SOLANA_RPC_URLS = [
+    "https://api.mainnet-beta.solana.com",
+    "https://solana-mainnet.g.alchemy.com/v2/NHAveomHS7q-QGj2ddOa86_QzVi9QzeY",
+    "https://solana-mainnet.g.alchemy.com/v2/D6p4-dGHuCfO42nBFTPzJdpWBN9vUlsz",
+    "https://solana-rpc.publicnode.com",
+    "https://solana.drpc.org"
+]
 SOL_MINT           = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API  = "https://lite-api.jup.ag/swap/v1/quote"
 JUPITER_SWAP_API   = "https://lite-api.jup.ag/swap/v1/swap"
