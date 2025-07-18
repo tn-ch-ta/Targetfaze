@@ -45,9 +45,8 @@ SOL_MINT           = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API  = "https://lite-api.jup.ag/swap/v1/quote"
 JUPITER_SWAP_API   = "https://lite-api.jup.ag/swap/v1/swap"
 
-# shared AsyncClient (re-used to query balances or sendRawTransaction)
-client = AsyncClient(RPC_URL)
-
+# Create ONE shared AsyncClient on import — with randomized choice
+client: AsyncClient = AsyncClient(random.choice(SOLANA_RPC_URLS))
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helper: drop None values from nested dict/list
@@ -261,23 +260,30 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
             start = time.time()
 
             while time.time() - start < timeout:
-                resp = await client.get_signature_statuses([txid])
-                status = resp.value[0]
+                try:
+                    resp = await client.get_signature_statuses([txid])
+                    status = resp.value[0]
 
-                if status:
-                    print(f"[DEBUG] Signature status: {status}")
-                    confirmation = status.get("confirmationStatus")
-                    err = status.get("err")
+                    if status:
+                        print(f"[DEBUG] Signature status: {status}")
+                        confirmation = status.get("confirmationStatus")
+                        err = status.get("err")
 
-                    if err is not None:
-                        raise Exception(f"[ERROR] Transaction execution failed: {err}")
-                    if confirmation in ("confirmed", "finalized"):
-                        print(f"[TXN] Confirmed: {txid}")
-                        break
-                else:
-                    print("[DEBUG] No status yet...")
+                        if err is not None:
+                            raise Exception(f"[ERROR] Transaction execution failed: {err}")
+                        if confirmation in ("confirmed", "finalized"):
+                            print(f"[TXN] Confirmed: {txid}")
+                            break
+                    else:
+                        print("[DEBUG] No status yet...")
 
-                await sleep(poll_interval)
+                except Exception as inner_e:
+                    print(f"[DEBUG] RPC call failed: {inner_e}")
+
+                # ⏳ Exponential backoff (1s → 2s → 4s → ... up to 8s)
+                delay = min(2 ** attempt, 8)
+                await sleep(delay)
+                attempt += 1
             else:
                 raise Exception("[ERROR] Transaction confirmation timed out")
 
