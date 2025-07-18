@@ -12,10 +12,13 @@ httpx.AsyncClient.__init__ = _patched_async_init
 import base58
 import base64
 import aiohttp
+import asyncio
 import json
 import uuid
 import logging
+import time
 
+from asyncio import sleep
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
@@ -245,9 +248,33 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
 
         # Step 7: Confirm the transaction
         print("\n[DEBUG] Step 7: Confirming the TXN")
+
         try:
-            await client.confirm_transaction(txid, commitment=Confirmed)
-            print(f"[TXN] Confirmed: {txid}")
+            timeout = 90  # seconds
+            poll_interval = 0.5  # seconds
+            start = time.time()
+
+            while time.time() - start < timeout:
+                resp = await client.get_signature_statuses([txid])
+                status = resp.value[0]
+
+                if status:
+                    print(f"[DEBUG] Signature status: {status}")
+                    confirmation = status.get("confirmationStatus")
+                    err = status.get("err")
+
+                    if err is not None:
+                        raise Exception(f"[ERROR] Transaction execution failed: {err}")
+                    if confirmation in ("confirmed", "finalized"):
+                        print(f"[TXN] Confirmed: {txid}")
+                        break
+                else:
+                    print("[DEBUG] No status yet...")
+
+                await sleep(poll_interval)
+            else:
+                raise Exception("[ERROR] Transaction confirmation timed out")
+
         except Exception as e:
             raise Exception(f"[ERROR] confirm_transaction failed: {e}")
             
