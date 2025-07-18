@@ -142,7 +142,6 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
         "wrapUnwrapSOL": True,
         "useSharedAccounts": False,
         "usePriorityFee": True,  # Enable use of priority fees
-        "dynamicComputeUnitLimit": True,
         "dynamicSlippage": False,
         "simulateTx": False,
         "prioritizationFeeLamports": "auto", # Let Jupiter handle it
