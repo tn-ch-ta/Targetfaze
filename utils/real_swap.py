@@ -143,7 +143,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
         "useSharedAccounts": False,
         "usePriorityFee": True,  # Enable use of priority fees
         "dynamicSlippage": False,
-        "simulateTx": False,
+        "simulateTx": True,
         "prioritizationFeeLamports": "auto", # Let Jupiter handle it
     }
 
