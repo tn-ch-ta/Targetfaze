@@ -141,16 +141,12 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
         "userPublicKey": str(user_pubkey),
         "wrapUnwrapSOL": True,
         "useSharedAccounts": False,
-        "usePriorityFee": False,
+        "usePriorityFee": True,  # Enable use of priority fees
         "dynamicComputeUnitLimit": True,
-        "dynamicSlippage": True,
+        "dynamicSlippage": False,
         "simulateTx": False,
-        "prioritizationFeeLamports": {
-            "priorityLevelWithMaxLamports": {
-                "maxLamports": 1_000_000,
-                "priorityLevel": "veryHigh"
-            }
-        }
+        "prioritizationFeeLamports": "auto", # Let Jupiter handle it
+        "computeUnitPriceMicroLamports": "auto" # optional fallback
     }
 
     print("[DEBUG] Final swap payload:")
