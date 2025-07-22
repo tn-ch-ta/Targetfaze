@@ -14,7 +14,6 @@ import base64
 import aiohttp
 import asyncio
 import json
-import uuid
 import logging
 import time
 import random
@@ -173,8 +172,9 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
     # Get and decode swapTransaction
     tx_raw = json_data.get("swapTransaction")
-    if not tx_raw:
-        raise Exception(f"Jupiter swap failed, no transaction returned: {json_data}")
+    last_valid = data.get("lastValidBlockHeight")
+    if tx_raw is None or last_valid is None:
+        raise Exception(f"Jupiter swap failed or Malformed swap response: {data}")
 
     if isinstance(tx_raw, str):
         print(f"[DEBUG] swapTransaction is a Base64 string (len={len(tx_raw)})")
@@ -193,7 +193,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
     else:
         raise Exception(f"[ERROR] Unexpected swapTransaction format: {type(tx_raw)}")
 
-    return tx_bytes
+    return tx_bytes, last_valid
 
 
 
@@ -245,7 +245,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         try:
             resp = await client.send_raw_transaction(
                 serialized_bytes,
-                opts=TxOpts(skip_confirmation=False, skip_preflight=True, preflight_commitment='finalized')
+                opts=TxOpts(skip_confirmation=False, skip_preflight=True, preflight_commitment='finalized', last_valid_block_height=last_valid)
             )
             txid = resp.value if hasattr(resp, "value") else resp
             print(f"[TXN] Sent: {txid}")
@@ -254,46 +254,41 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
 
         # Step 7: Confirm the transaction
         print("\n[DEBUG] Step 7: Confirming the TXN")
+        poll_interval = 0.5   # seconds between retries
+        timeout       = 90    # total timeout in seconds
+        start         = time.time()
 
-        try:
-            timeout = 90  # seconds
-            poll_interval = 0.5  # seconds
-            start = time.time()
-            attempt = 0  # ✅ Defined before use
-            max_attempts = 10
+        while time.time() - start < timeout:
+            try:
+                # Use the built-in confirm_transaction call with last_valid_block_height
+                result = await client.confirm_transaction(
+                    tx_sig=txid,
+                    commitment=Confirmed,
+                    sleep_seconds=poll_interval,
+                    last_valid_block_height=last_valid,
+                )
+            except Exception as e:
+                print(f"[DEBUG] confirm_transaction RPC error: {e}")
+                # wait and retry
+                await sleep(poll_interval)
+                continue
 
-            while time.time() - start < timeout:
-                try:
-                    resp = await client.get_signature_statuses([txid])
-                    status = resp.value[0]
+            # inspect the RPC response
+            value = result.get("value")
+            if value is None:
+                print("[DEBUG] No confirmation yet—retrying...")
+                await sleep(poll_interval)
+                continue
 
-                    if status:
-                        print(f"[DEBUG] Signature status: {status}")
-                        confirmation = status.get("confirmationStatus")
-                        err = status.get("err")
+            if value.get("err") is not None:
+                raise Exception(f"[ERROR] Transaction execution failed on-chain: {value['err']}")
 
-                        if err is not None:
-                            raise Exception(f"[ERROR] Transaction execution failed: {err}")
-                        if confirmation in ("confirmed", "finalized"):
-                            print(f"[TXN] Confirmed: {txid}")
-                            break
-                    else:
-                        print("[DEBUG] No status yet...")
+            # got a successful confirmation
+            print(f"[TXN] Confirmed: {txid}")
+            return txid
 
-                except Exception as inner_e:
-                    print(f"[DEBUG] RPC call failed: {inner_e}")
-
-                # ⏳ Exponential backoff (1s → 2s → 4s → ... up to 8s)
-                delay = min(2 ** attempt, 8)
-                await sleep(delay)
-                attempt += 1
-            else:
-                raise Exception("[ERROR] Transaction confirmation timed out")
-
-        except Exception as e:
-            raise Exception(f"[ERROR] confirm_transaction failed: {e}")
-            
-        return txid
+        # if we exit the loop, we timed out
+        raise Exception(f"[ERROR] confirm_transaction timed out after {timeout}s")
         
     except Exception as final_error:
         print(f"[FATAL ERROR] Send Transaction Failed: {final_error}")
@@ -309,10 +304,10 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
 
     quote_response = await get_swap_route(SOL_MINT, mint, lamports)
     
-    raw_tx_bytes = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes, last_valid = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        txid = await send_transaction(raw_tx_bytes, kp)
+        txid = await send_transaction(raw_tx_bytes, kp, last_valid)
         if not txid:
             raise Exception("Transaction failed or returned no txid.")
     except Exception as e:
@@ -355,10 +350,10 @@ async def sell_token_real(private_key: str, mint: str):
     
     quote_response = await get_swap_route(mint, SOL_MINT, sell_amount)
     
-    raw_tx_bytes = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes, last_valid = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        txid = await send_transaction(raw_tx_bytes, kp)
+        txid = await send_transaction(raw_tx_bytes, kp, last_valid)
         if not txid:
             raise Exception("Transaction failed or returned no txid.")
     except Exception as e:
