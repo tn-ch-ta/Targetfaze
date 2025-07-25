@@ -245,7 +245,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
         try:
             resp = await client.send_raw_transaction(
                 serialized_bytes,
-                opts=TxOpts(skip_confirmation=False, skip_preflight=True, preflight_commitment=Processed , last_valid_block_height=last_valid)
+                opts=TxOpts(skip_confirmation=False, skip_preflight=True, preflight_commitment="processed" , last_valid_block_height=last_valid)
             )
             txid = resp.value if hasattr(resp, "value") else resp
             print(f"[TXN] Sent: {txid}")
