@@ -103,7 +103,7 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
         "inputMint":                 input_mint,
         "outputMint":                output_mint,
         "amount":                    amount,
-        "slippageBps":               int(slippage * 150),
+        "slippageBps":               int(slippage * 250),
         "onlyDirectRoutes":          "false",
         "restrictIntermediateTokens": "true",
     }
@@ -130,7 +130,7 @@ async def buy_token_real(
     private_key_b58: str,
     mint: str,
     sol_amount: float,
-    slippage_pct: float = 1.0,
+    slippage_pct: float = 2.5,
     priority_fee_sol: float = 0.00005,
 ) -> str:
     """
@@ -176,7 +176,12 @@ async def buy_token_real(
 
     # 5) Perform the swap
     start = time.time()
-    txid = await tracker.perform_swap(swap_resp, options=options)
+    try:
+        txid = await tracker.perform_swap(swap_resp, options=options)
+    except Exception as e:
+        if "6002" in str(e):
+            raise Exception("Swap failed: Exceeded slippage tolerance (error 6002).")
+        raise  # re-raise all other exceptions
     elapsed = time.time() - start
 
     logger.info(f"[BUY] Completed: {txid} in {elapsed:.2f}s")
@@ -185,7 +190,7 @@ async def buy_token_real(
 async def sell_token_real(
     private_key_b58: str,
     mint: str,
-    slippage_pct: float = 1.0,
+    slippage_pct: float = 2.5,
     priority_fee_sol: float = 0.00005,
 ) -> str:
     """
