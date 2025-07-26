@@ -207,7 +207,8 @@ async def sell_token_real(
     balance = int(resp.value.amount)
     if balance == 0:
         raise RuntimeError("No tokens to sell.")
-    sell_amt = int(balance * 0.98)  # ✅ Correct: whole number in raw token units
+    # RIGHT ➡️ float token units
+    sell_amt = (balance * 0.98) / 1e9  # ✅ Correct: whole number in raw token units
 
     # 2) Quote (optional logging)
     quote = await get_swap_route(mint, SOL_MINT, sell_amt, slippage_pct)
@@ -217,12 +218,13 @@ async def sell_token_real(
     # 3) Tracker setup & swap instructions
     tracker = SolanaTracker(kp, RPC_URL)
     swap_resp = await tracker.get_swap_instructions(
-        from_token=mint,
-        to_token=SOL_MINT,
-        from_amount=sell_amt,
-        slippage=slippage_pct,
-        payer=payer,
-        priority_fee=priority_fee_sol,
+        mint,             # input_mint
+        SOL_MINT,         # output_mint
+        float(sell_amt),  # amount (as float)
+        slippage_pct,     # slippage
+        payer,            # payer
+        priority_fee_sol, # priority_fee
+        False             # force_legacy
     )
 
     # 4) Same options as buy
