@@ -22,6 +22,7 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Commitment, Confirmed, Finalized, Processed
+from solanatracker import SolanaTracker
 
 logger = logging.getLogger("real_swap")
 logging.basicConfig(level=logging.INFO)
