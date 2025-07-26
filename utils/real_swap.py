@@ -207,18 +207,18 @@ async def sell_token_real(
     balance = int(resp.value.amount)
     if balance == 0:
         raise RuntimeError("No tokens to sell.")
-    sell_amt = balance * 0.98 / 1e9  # convert to SOL units
+    sell_amt = (balance * 0.98) / 1e9  # amount in float, in token units (for Jupiter)
 
     # 2) Quote (optional logging)
-    quote = await get_swap_route(mint, SOL_MINT, balance, slippage_pct)
+    quote = await get_swap_route(mint, SOL_MINT, sell_amt, slippage_pct)
     logger.info(f"[QUOTE] {balance/1e9:.9f} {mint} → {quote['outAmount']/1e9:.9f} SOL")
 
     # 3) Tracker setup & swap instructions
     tracker = SolanaTracker(kp, RPC_URL)
     swap_resp = await tracker.get_swap_instructions(
-        from_token=SOL_MINT,
-        to_token=mint,
-        from_amount=sol_amount,
+        from_token=mint,
+        to_token=SOL_MINT,
+        from_amount=sell_amt,
         slippage=slippage_pct,
         payer=payer,
         priority_fee=priority_fee_sol,
@@ -240,18 +240,13 @@ async def sell_token_real(
     }
 
     start = time.time()
-    txid = await tracker.perform_swap(swap_resp, options=options)
+    try:
+        txid = await tracker.perform_swap(swap_resp, options=options)
+    except Exception as e:
+        if "6002" in str(e):
+            raise Exception("Swap failed: Exceeded slippage tolerance (error 6002).")
+        raise
     elapsed = time.time() - start
 
     logger.info(f"[SELL] Completed: {txid} in {elapsed:.2f}s")
     return txid
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Helper to fetch a token account’s balance (in raw amount)
-# ──────────────────────────────────────────────────────────────────────────────
-async def get_token_balance(token_account: Pubkey) -> int:
-    resp = await client.get_token_account_balance(token_account)
-    amt  = int(resp.value.amount)
-    print(f"[DEBUG] Token balance for {token_account}: {amt}")
-    return amt
