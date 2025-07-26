@@ -212,7 +212,7 @@ async def sell_token_real(
     # 2) Quote (optional logging)
     quote = await get_swap_route(mint, SOL_MINT, sell_amt, slippage_pct)
     out_amt = int(quote["outAmount"])  # ← convert here
-    logger.info(f"[QUOTE] {balance/1e9:.9f} {mint} → {quote['outAmount']/1e9:.9f} SOL")
+    logger.info(f"[QUOTE] {balance/1e9:.9f} {mint} → {out_amt/1e9:.9f} SOL (slippage {slippage_pct}%)")
 
     # 3) Tracker setup & swap instructions
     tracker = SolanaTracker(kp, RPC_URL)
