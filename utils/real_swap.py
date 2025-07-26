@@ -151,11 +151,11 @@ async def buy_token_real(
 
     # 3) Build swap instructions via SolanaTracker
     swap_resp = await tracker.get_swap_instructions(
-        from_mint=SOL_MINT,
-        to_mint=mint,
-        amount=sol_amount,
+        from_token=SOL_MINT,
+        to_token=mint,
+        from_amount=sol_amount,
         slippage=slippage_pct,
-        payer_pubkey=payer,
+        payer=payer,
         priority_fee=priority_fee_sol,
     )
 
@@ -211,11 +211,11 @@ async def sell_token_real(
     # 3) Tracker setup & swap instructions
     tracker = SolanaTracker(kp, RPC_URL)
     swap_resp = await tracker.get_swap_instructions(
-        from_mint=mint,
-        to_mint=SOL_MINT,
-        amount=sell_amt,
+        from_token=SOL_MINT,
+        to_token=mint,
+        from_amount=sol_amount,
         slippage=slippage_pct,
-        payer_pubkey=payer,
+        payer=payer,
         priority_fee=priority_fee_sol,
     )
 
