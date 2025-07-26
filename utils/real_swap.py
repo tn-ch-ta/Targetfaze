@@ -199,7 +199,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
 # Step 3: Send a signed, versioned transaction to Solana mainnet
 # ──────────────────────────────────────────────────────────────────────────────
-async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair, last_valid: int) -> str:
+async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair) -> str:
     try:
         print("[DEBUG] Step 1: Deserializing transaction bytes from Jupiter...")
         try:
@@ -209,22 +209,37 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair, last_valid: in
         except Exception as e:
             print(f"[ERROR] Failed to Deserialize: {e}")
             return None
+            
+        # 1) Refresh the blockhash right before signing
+        latest = await client.get_latest_blockhash(commitment=Confirmed)
+        blockhash = latest.value.blockhash
+        last_valid = latest.value.last_valid_block_height
     
         print("\n[DEBUG] Step 2: Extracting MessageV0 from VersionedTransaction...")
         message: MessageV0 = unsigned_tx.message
         header = message.header
-        num_required_sigs = header.num_required_signatures
-        print(f"[DEBUG] num_required_signatures = {num_required_sigs}")
-        print("[DEBUG] Extracted message:")
-        print(message)
+        
+        # Extract existing message fields
+        account_keys = message.account_keys
+        instructions = message.instructions
+        address_table_lookups = message.address_table_lookups
+        new_message = MessageV0(
+            header=header,
+            recent_blockhash=blockhash,  # ✅ replace the blockhash here
+            account_keys=account_keys,
+            instructions=instructions,
+            address_table_lookups=address_table_lookups,
+        )
+        print("[DEBUG] Rebuilt message:")
+        print(new_message)
 
         print("\n[DEBUG] Step 3: Signing the message with keypair...")
-        sig: Signature = keypair.sign_message(bytes(message))
+        sig: Signature = keypair.sign_message(bytes(new_message))
         print(f"[DEBUG] ✅ Signature: {sig}")
         
         print("\n[DEBUG] Step 4: Construct back into VersionedTransaction...")
         try:
-            signed_tx = VersionedTransaction.populate(message, [sig])
+            signed_tx = VersionedTransaction.populate(new_message, [sig])
             print("[DEBUG] Construction complete.")
             print(f"[DEBUG] Signed Transaction:\n{signed_tx}")
         except Exception as e:
@@ -245,7 +260,7 @@ async def send_transaction(raw_tx_bytes: bytes, keypair: Keypair, last_valid: in
         try:
             resp = await client.send_raw_transaction(
                 serialized_bytes,
-                opts=TxOpts(skip_confirmation=False, skip_preflight=True, preflight_commitment="processed" , last_valid_block_height=last_valid)
+                opts=TxOpts(skip_preflight=True, preflight_commitment="processed" , last_valid_block_height=last_valid)
             )
             txid = resp.value if hasattr(resp, "value") else resp
             print(f"[TXN] Sent: {txid}")
@@ -304,10 +319,10 @@ async def buy_token_real(private_key: str, mint: str, sol_amount: float):
 
     quote_response = await get_swap_route(SOL_MINT, mint, lamports)
     
-    raw_tx_bytes, last_valid = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        txid = await send_transaction(raw_tx_bytes, kp, last_valid)
+        txid = await send_transaction(raw_tx_bytes, kp)
         if not txid:
             raise Exception("Transaction failed or returned no txid.")
     except Exception as e:
@@ -350,10 +365,10 @@ async def sell_token_real(private_key: str, mint: str):
     
     quote_response = await get_swap_route(mint, SOL_MINT, sell_amount)
     
-    raw_tx_bytes, last_valid = await get_swap_transaction(quote_response, kp.pubkey())
+    raw_tx_bytes = await get_swap_transaction(quote_response, kp.pubkey())
 
     try:
-        txid = await send_transaction(raw_tx_bytes, kp, last_valid)
+        txid = await send_transaction(raw_tx_bytes, kp)
         if not txid:
             raise Exception("Transaction failed or returned no txid.")
     except Exception as e:
