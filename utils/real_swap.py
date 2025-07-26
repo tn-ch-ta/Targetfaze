@@ -207,7 +207,7 @@ async def sell_token_real(
     balance = int(resp.value.amount)
     if balance == 0:
         raise RuntimeError("No tokens to sell.")
-    sell_amt = (balance * 0.98) / 1e9  # amount in float, in token units (for Jupiter)
+    sell_amt = int(balance * 0.98)  # ✅ Correct: whole number in raw token units
 
     # 2) Quote (optional logging)
     quote = await get_swap_route(mint, SOL_MINT, sell_amt, slippage_pct)
