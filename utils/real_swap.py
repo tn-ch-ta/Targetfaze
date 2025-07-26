@@ -172,8 +172,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
 
     # Get and decode swapTransaction
     tx_raw = json_data.get("swapTransaction")
-    last_valid = json_data.get("lastValidBlockHeight")
-    if tx_raw is None or last_valid is None:
+    if tx_raw is None:
         raise Exception(f"Jupiter swap failed or Malformed swap response: {json_data}")
 
     if isinstance(tx_raw, str):
@@ -193,7 +192,7 @@ async def get_swap_transaction(quote_response: dict, user_pubkey: Pubkey) -> byt
     else:
         raise Exception(f"[ERROR] Unexpected swapTransaction format: {type(tx_raw)}")
 
-    return tx_bytes, last_valid
+    return tx_bytes
 
 
 
