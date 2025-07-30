@@ -20,5 +20,5 @@ Targetfaze is a fully automated memecoin sniper bot for the Solana network. It d
 1. **Clone the repo**
 
 ```bash
-git clone https://github.com/yourusername/Targetfaze.git
+git clone https://github.com/dappstm/Targetfaze.git
 cd Targetfaze
