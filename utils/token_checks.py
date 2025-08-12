@@ -95,10 +95,10 @@ async def check_rugcheck_score(mint_address: str) -> bool:
 
         score_norm = float(data.get("score_normalised", 999))
         if score_norm < 5:
-            logger.info(f"[✅RUGCHECK] {mint_address} score_normalised {score_norm:.2f} < 2.")
+            logger.info(f"[✅RUGCHECK] {mint_address} score_normalised {score_norm:.2f} < 5.")
             return True
 
-        logger.warning(f"[❌RUGCHECK] {mint_address} score_normalised {score_norm:.2f} >= 2.")
+        logger.warning(f"[❌RUGCHECK] {mint_address} score_normalised {score_norm:.2f} >= 5.")
         return False
 
     except Exception as e:
