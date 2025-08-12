@@ -8,7 +8,6 @@ httpx.AsyncClient.__init__ = _patched_async_init
 
 import logging
 import random
-import asyncio
 import aiohttp
 from solders.pubkey import Pubkey
 from solana.rpc.async_api import AsyncClient
@@ -25,8 +24,15 @@ SOLANA_RPC_URLS = [
     "https://solana-rpc.publicnode.com",
     "https://solana.drpc.org"
 ]
-PUMP_FUN_API = "https://frontend-api-v3.pump.fun/coins/latest"
+
 JUPITER_TOKEN_INFO_API = "https://lite-api.jup.ag/tokens/v1/token/{}"
+BIRDEYE_API = "https://public-api.birdeye.so/defi/v3/token/market-data"
+BIRDEYE_HEADERS = {
+    "accept": "application/json",
+    "x-chain": "solana",
+    "X-API-KEY": "38a6df7fd63941b3aaf7e25f9e38a2e8"
+}
+RUGCHECK_API = "https://api.rugcheck.xyz/v1/tokens/{}/report"
 
 # ── RPC Client Selector ───────────────────────────────────────────────────────
 def get_random_client() -> AsyncClient:
@@ -53,86 +59,88 @@ async def check_freeze_authority(mint_address: str) -> bool:
         logger.error(f"[🚫FREEZE CHECK] Error checking freezeAuthority for {mint_address}: {e}")
         return False
 
-# ── Liquidity + Market Cap Check (Pump.fun) ───────────────────────────────────
-async def check_pumpfun_liquidity_and_marketcap(mint_address: str) -> int:
+# ── Liquidity + Market Cap Check (Birdeye) ─────────────────────────────────────
+async def check_birdeye_liquidity_and_marketcap(mint_address: str) -> bool:
     """
-    Calls Pump.fun's /coins/latest endpoint. Handles both single-object and list responses.
-    Then:
-      • Requires real_sol_reserves ≥ 1 SOL
-      • If market_cap ≥ $50 → return 60 (hold 60s)
-      • Elif market_cap ≥ $30 → return 20 (hold 20s)
-      • Else → return 0 (skip)
-
-    On any error or unexpected format → return 0.
+    Uses Birdeye API to check:
+      • market_cap > 2000
+      • liquidity > 500
+      • liquidity <= market_cap
+    Returns True if passes, else False.
     """
+    params = {"address": mint_address, "ui_amount_mode": "scaled"}
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(PUMP_FUN_API, timeout=7) as resp:
+            async with session.get(BIRDEYE_API, headers=BIRDEYE_HEADERS, params=params, timeout=7) as resp:
                 data = await resp.json()
 
-        # Handle case where a single token object is returned
-        if isinstance(data, dict) and data.get("mint") == mint_address:
-            token = data
-            
-        # Handle case where a token list is returned
-        elif isinstance(data, list):
-            token = next((t for t in data if t.get("mint") == mint_address), None)
-            if token is None:
-                logger.warning(f"[❌PUMP.FUN] Token {mint_address} not found in Pump.fun latest list.")
-                return 0
-        else:
-            logger.error(f"[🚫PUMP.FUN FORMAT] Unexpected response format from Pump.fun API.")
-            return 0
+        market_cap = float(data.get("data", {}).get("marketCap", 0))
+        liquidity = float(data.get("data", {}).get("liquidity", 0))
 
-        # Extract reserves + market cap
-        reserve_lamports = float(token.get("real_sol_reserves", 0))
-        reserve_sol = reserve_lamports / 1e9
-        market_cap = float(token.get("market_cap", 0))
+        if liquidity > market_cap:
+            logger.warning(f"[❌BIRDEYE] {mint_address} liquidity {liquidity} > market cap {market_cap}.")
+            return False
 
-        # 1) Liquidity check: require ≥ 1 SOL in reserves
-        if reserve_sol < 1:
-            logger.warning(f"[❌LIQUIDITY CHECK] {mint_address} has only {reserve_sol:.4f} SOL (< 1 SOL).")
-            return 0
-        else:
-            logger.info(f"[✅LIQUIDITY CHECK] {mint_address} has {reserve_sol:.4f} SOL in reserve.")
+        if market_cap <= 2000:
+            logger.warning(f"[❌BIRDEYE] {mint_address} market cap ${market_cap:.2f} <= 2000.")
+            return False
 
-        # 2) Market cap tiered hold time:
-        if market_cap >= 50:
-            logger.info(f"[✅MARKET CAP CHECK] {mint_address} has market cap ${market_cap:.2f} (≥ $50) → hold 60s.")
-            return 60
-        elif market_cap >= 30:
-            logger.info(f"[✅MARKET CAP CHECK] {mint_address} has market cap ${market_cap:.2f} (≥ $30) → hold 20s.")
-            return 20
-        else:
-            logger.warning(f"[❌MARKET CAP CHECK] {mint_address} has market cap ${market_cap:.2f} (< $30).")
-            return 0
+        if liquidity <= 500:
+            logger.warning(f"[❌BIRDEYE] {mint_address} liquidity ${liquidity:.2f} <= 500.")
+            return False
+
+        logger.info(f"[✅BIRDEYE] {mint_address} market cap ${market_cap:.2f}, liquidity ${liquidity:.2f}.")
+        return True
 
     except Exception as e:
-        logger.error(f"[🚫PUMP.FUN CHECK] Error checking liquidity/market cap for {mint_address}: {e}")
-        return 0
+        logger.error(f"[🚫BIRDEYE] Error checking liquidity/market cap for {mint_address}: {e}")
+        return False
+
+# ── Rugcheck Score Check ──────────────────────────────────────────────────────
+async def check_rugcheck_score(mint_address: str) -> bool:
+    """
+    Uses Rugcheck API to ensure score_normalised < 2
+    """
+    url = RUGCHECK_API.format(mint_address)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=7) as resp:
+                data = await resp.json()
+
+        score_norm = float(data.get("score_normalised", 999))
+        if score_norm < 2:
+            logger.info(f"[✅RUGCHECK] {mint_address} score_normalised {score_norm:.2f} < 2.")
+            return True
+        else:
+            logger.warning(f"[❌RUGCHECK] {mint_address} score_normalised {score_norm:.2f} >= 2.")
+            return False
+
+    except Exception as e:
+        logger.error(f"[🚫RUGCHECK] Error checking Rugcheck score for {mint_address}: {e}")
+        return False
 
 # ── Final Check Sequence ───────────────────────────────────────────────────────
-async def passes_all_checks(mint_address: str) -> int:
+async def passes_all_checks(mint_address: str) -> bool:
     """
     Run safety checks in order:
-      1. check_freeze_authority(mint_address)
-      2. check_pumpfun_liquidity_and_marketcap(mint_address)
-
-    If both pass, return the hold duration (20 or 60). Otherwise return 0.
+      1. Freeze Authority (Jupiter)
+      2. Liquidity & Market Cap (Birdeye)
+      3. Rugcheck score
+    Returns True if all pass, else False.
     """
     try:
         if not await check_freeze_authority(mint_address):
-            logger.info(f"[❌ALL CHECKS] {mint_address} failed freeze authority check.")
-            return 0
+            return False
 
-        hold_time = await check_pumpfun_liquidity_and_marketcap(mint_address)
-        if hold_time == 0:
-            logger.info(f"[❌ALL CHECKS] {mint_address} failed liquidity/market cap check.")
-            return 0
+        if not await check_birdeye_liquidity_and_marketcap(mint_address):
+            return False
 
-        logger.info(f"[✅ALL CHECKS] {mint_address} passed all checks (hold {hold_time}s).")
-        return hold_time
+        if not await check_rugcheck_score(mint_address):
+            return False
+
+        logger.info(f"[✅ALL CHECKS] {mint_address} passed all checks.")
+        return True
 
     except Exception as e:
         logger.error(f"[🚫ALL CHECKS] Unexpected error for {mint_address}: {e}")
-        return 0
+        return False
