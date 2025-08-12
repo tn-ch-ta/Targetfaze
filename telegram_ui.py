@@ -24,6 +24,20 @@ Welcome to *Targetfaze* — your Pump.fun sniper bot!
 • /status - View your current config
 """
 
+# We'll keep the app reference globally so sniper_runner can use it
+telegram_app = None
+
+async def send_notification(chat_id: int, text: str, parse_mode="Markdown"):
+    """Send a message to the given Telegram user."""
+    global telegram_app
+    if telegram_app:
+        try:
+            await telegram_app.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+        except TelegramError as e:
+            print(f"[Telegram Error] Failed to send message: {e}")
+    else:
+        print(f"[Warning] Tried to send Telegram message before app initialized: {text}")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(WELCOME_TEXT, reply_markup=reply_markup, parse_mode="Markdown")
 
