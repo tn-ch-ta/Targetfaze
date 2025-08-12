@@ -65,7 +65,7 @@ async def check_birdeye_liquidity_and_marketcap(mint_address: str) -> tuple | No
             async with session.get(BIRDEYE_API, headers=BIRDEYE_HEADERS, params=params, timeout=7) as resp:
                 data = await resp.json()
 
-        market_cap = float(data.get("data", {}).get("marketCap", 0))
+        market_cap = float(data.get("data", {}).get("market_cap", 0))
         liquidity = float(data.get("data", {}).get("liquidity", 0))
 
         if liquidity > market_cap:
@@ -94,7 +94,7 @@ async def check_rugcheck_score(mint_address: str) -> bool:
                 data = await resp.json()
 
         score_norm = float(data.get("score_normalised", 999))
-        if score_norm < 2:
+        if score_norm < 5:
             logger.info(f"[✅RUGCHECK] {mint_address} score_normalised {score_norm:.2f} < 2.")
             return True
 
