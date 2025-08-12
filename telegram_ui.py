@@ -137,6 +137,7 @@ def start_bot():
     async def on_startup(app):
         global telegram_ready
         telegram_ready = True
+        print("[Info] Telegram bot initialized — flushing queued messages...")
         await flush_notifications()
 
     async def error_handler(update, context):
@@ -151,5 +152,7 @@ def start_bot():
     telegram_app.add_handler(CommandHandler("status", status))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    telegram_app.post_init(on_startup)
+    # ✅ Correct way to register startup hook
+    telegram_app.post_init = on_startup
+
     telegram_app.run_polling()
