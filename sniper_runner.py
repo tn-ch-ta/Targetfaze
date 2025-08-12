@@ -84,8 +84,8 @@ async def _snipe_loop(uid: int, session):
                 f"✅ Passed liquidity & MC check\n\n"
                 f"*Name:* {name}\n"
                 f"*Mint:* `{mint}`\n"
-                f"*Liquidity:* {liquidity} SOL\n"
-                f"*Market Cap:* {market_cap} SOL"
+                f"*Liquidity:* {liquidity} USD\n"
+                f"*Market Cap:* {market_cap} USD"
             )
 
             logger.info(f"[{uid}] ✅ {name} ({mint}) passed checks → BUYING")
