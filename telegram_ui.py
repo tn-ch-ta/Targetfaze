@@ -15,34 +15,57 @@ reply_markup = ReplyKeyboardMarkup(custom_keyboard, resize_keyboard=True)
 
 user_sessions = {}
 WELCOME_TEXT = """
-Welcome to *Targetfaze* — your Pump.fun sniper bot!
+Welcome to *Targetfaze* — your moonshot sniper bot!
 
 • /setwallet - Set your Phantom private key (burner only)
 • /setamount - Set SOL amount per trade
-• /startsniping - Begin sniping new Pump.fun tokens
+• /startsniping - Begin sniping new tokens
 • /stop - Halt all activity
 • /status - View your current config
 """
 
-# We'll keep the app reference globally so sniper_runner can use it
+# Globals for app and queued notifications
 telegram_app = None
+telegram_ready = False
+notification_queue = []  # List of tuples: (chat_id, text, parse_mode)
+
 
 async def send_notification(chat_id: int, text: str, parse_mode="Markdown"):
-    """Send a message to the given Telegram user."""
-    global telegram_app
-    if telegram_app:
+    """Send a message to the given Telegram user, or queue it if bot not ready."""
+    global telegram_app, telegram_ready, notification_queue
+
+    if not telegram_ready or telegram_app is None:
+        print(f"[Warning] Telegram not ready — queuing message: {text}")
+        notification_queue.append((chat_id, text, parse_mode))
+        return
+
+    try:
+        await telegram_app.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+    except TelegramError as e:
+        print(f"[Telegram Error] Failed to send message: {e}")
+
+
+async def flush_notifications():
+    """Send all queued messages once bot is ready."""
+    global notification_queue
+    if not notification_queue:
+        return
+    print(f"[Info] Flushing {len(notification_queue)} queued Telegram messages...")
+    for chat_id, text, parse_mode in notification_queue:
         try:
             await telegram_app.bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
         except TelegramError as e:
-            print(f"[Telegram Error] Failed to send message: {e}")
-    else:
-        print(f"[Warning] Tried to send Telegram message before app initialized: {text}")
+            print(f"[Telegram Error] Failed to send queued message: {e}")
+    notification_queue.clear()
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(WELCOME_TEXT, reply_markup=reply_markup, parse_mode="Markdown")
 
+
 async def set_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Send your **burner private key** (Phantom) now.", parse_mode="Markdown")
+
 
 def is_valid_base58_key(msg):
     try:
@@ -50,6 +73,7 @@ def is_valid_base58_key(msg):
         return len(decoded) in [32, 64]
     except Exception:
         return False
+
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.chat_id
@@ -71,8 +95,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             await update.message.reply_text("⚠️ Invalid input.")
 
+
 async def set_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Enter SOL amount per trade (e.g., 0.01):")
+
 
 async def start_sniping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.chat_id
@@ -81,7 +107,8 @@ async def start_sniping(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Please set your wallet first using /setwallet.")
         return
     await start_sniping_for_user(uid, session)
-    await update.message.reply_text("🚀 Now sniping brand new Pump.fun tokens...")
+    await update.message.reply_text("🚀 Now sniping brand new Solana tokens...")
+
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.chat_id
@@ -89,6 +116,7 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if uid in user_sessions:
         user_sessions[uid].sniping = False
     await update.message.reply_text("🛑 Sniping stopped.")
+
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions.get(update.message.chat_id)
@@ -100,19 +128,28 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("No session info found. Use /setwallet and /setamount to configure.")
 
+
 def start_bot():
-    app = ApplicationBuilder().token(CONFIG["telegram_token"]).build()
+    global telegram_app, telegram_ready
+
+    telegram_app = ApplicationBuilder().token(CONFIG["telegram_token"]).build()
+
+    async def on_startup(app):
+        global telegram_ready
+        telegram_ready = True
+        await flush_notifications()
 
     async def error_handler(update, context):
         print(f"Error while handling update: {context.error}")
 
-    app.add_error_handler(error_handler)
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("setwallet", set_wallet))
-    app.add_handler(CommandHandler("setamount", set_amount))
-    app.add_handler(CommandHandler("startsniping", start_sniping))
-    app.add_handler(CommandHandler("stop", stop))
-    app.add_handler(CommandHandler("status", status))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    telegram_app.add_error_handler(error_handler)
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CommandHandler("setwallet", set_wallet))
+    telegram_app.add_handler(CommandHandler("setamount", set_amount))
+    telegram_app.add_handler(CommandHandler("startsniping", start_sniping))
+    telegram_app.add_handler(CommandHandler("stop", stop))
+    telegram_app.add_handler(CommandHandler("status", status))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    app.run_polling()
+    telegram_app.post_init(on_startup)
+    telegram_app.run_polling()
