@@ -86,7 +86,15 @@ async def check_birdeye_liquidity_and_marketcap(mint_address: str) -> tuple | No
         return None
 
 # ── Rugcheck Score Check ──────────────────────────────────────────────────────
-async def check_rugcheck_score(mint_address: str) -> bool:
+async def check_rugcheck_score(mint_address: str) -> tuple[bool, int]:
+    """
+    Check RugCheck score and total holders for a given token mint.
+
+    Returns:
+        (passed, total_holders)
+        - passed: True if score_normalised < 5 and total_holders > 7
+        - total_holders: int value from RugCheck API (or -1 if missing)
+    """
     url = RUGCHECK_API.format(mint_address)
     try:
         async with aiohttp.ClientSession() as session:
@@ -94,15 +102,17 @@ async def check_rugcheck_score(mint_address: str) -> bool:
                 data = await resp.json()
 
         score_norm = float(data.get("score_normalised", 999))
-        if score_norm < 5:
-            logger.info(f"[✅RUGCHECK] {mint_address} score_normalised {score_norm:.2f} < 5.")
+        total_holders = int(data.get("totalHolders", -1))
+
+        if score_norm < 5 and total_holders > 7:
+            logger.info(f"[✅RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — PASS")
             return True
 
-        logger.warning(f"[❌RUGCHECK] {mint_address} score_normalised {score_norm:.2f} >= 5.")
+        logger.warning(f"[❌RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — FAIL")
         return False
 
     except Exception as e:
-        logger.error(f"[🚫RUGCHECK] Error checking Rugcheck score for {mint_address}: {e}")
+        logger.error(f"[🚫RUGCHECK] Error checking RugCheck for {mint_address}: {e}")
         return False
 
 # ── Final Check Sequence ──────────────────────────────────────────────────────
