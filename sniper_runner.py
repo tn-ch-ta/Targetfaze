@@ -6,7 +6,7 @@ import logging
 import time
 from utils.token_checks import passes_all_checks
 from utils.real_swap import buy_token_real
-from telegram_ui import send_notification  # ✅ Import for Telegram updates
+
 
 logger = logging.getLogger("sniper_runner")
 active_tasks: dict[int, asyncio.Task] = {}
@@ -75,7 +75,9 @@ async def _snipe_loop(uid: int, session):
 
             # Expected structure: (hold_duration, liquidity, market_cap)
             liquidity, market_cap = check_result
-
+            
+            from telegram_ui import send_notification  # ✅ Import for Telegram updates
+        
             # Notify that token passed checks
             await send_notification(
                 uid,
