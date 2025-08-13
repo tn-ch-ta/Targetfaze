@@ -7,7 +7,6 @@ import time
 from utils.token_checks import passes_all_checks
 from utils.real_swap import buy_token_real
 
-
 logger = logging.getLogger("sniper_runner")
 active_tasks: dict[int, asyncio.Task] = {}
 seen_tokens: set[str] = set()
@@ -20,7 +19,7 @@ async def fetch_new_birdeye_tokens(limit: int = 5) -> list[dict]:
     params = {
         "limit": limit,
         "meme_platform_enabled": "true",
-        "time_to": int(time.time()),  # current unix timestamp
+        "time_to": int(time.time()),
     }
     headers = {
         "accept": "application/json",
@@ -50,7 +49,7 @@ async def fetch_new_birdeye_tokens(limit: int = 5) -> list[dict]:
 
 async def _snipe_loop(uid: int, session):
     logger.info(f"[{uid}] ▶️ Started async sniping session")
-    session.busy = False  # Lock to prevent overlapping buys
+    session.busy = False
 
     while session.sniping:
         if session.busy:
@@ -62,30 +61,28 @@ async def _snipe_loop(uid: int, session):
             mint = token.get("address")
             name = token.get("symbol") or token.get("name", "Unnamed")
 
-            if not mint:
-                continue
-            if mint in seen_tokens:
+            if not mint or mint in seen_tokens:
                 continue
             seen_tokens.add(mint)
 
-            # Run token checks
+            # ✅ Run token checks (now expects 3 return values)
             check_result = await passes_all_checks(mint)
             if not check_result:
                 continue
 
-            # Expected structure: (hold_duration, liquidity, market_cap)
-            liquidity, market_cap = check_result
-            
-            from telegram_ui import send_notification  # ✅ Import for Telegram updates
-        
-            # Notify that token passed checks
+            liquidity, score_norm, total_holders = check_result
+
+            from telegram_ui import send_notification  # avoid circular import
+
+            # ✅ Notify that token passed checks
             await send_notification(
                 uid,
-                f"✅ Passed liquidity & MC check\n\n"
+                f"✅ Passed checks\n\n"
                 f"*Name:* {name}\n"
                 f"*Mint:* `{mint}`\n"
                 f"*Liquidity:* {liquidity} USD\n"
-                f"*Market Cap:* {market_cap} USD"
+                f"*Rugcheck Score:* {score_norm:.2f}\n"
+                f"*Total Holders:* {total_holders}"
             )
 
             logger.info(f"[{uid}] ✅ {name} ({mint}) passed checks → BUYING")
