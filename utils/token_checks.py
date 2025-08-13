@@ -63,9 +63,9 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
 
         # Liquidity check
         if total_liquidity <= 5000:
-            logger.warning(f"[❌LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} <= 2000.")
+            logger.warning(f"[❌LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} <= 5000.")
             return None
-        logger.info(f"[✅LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} > 2000.")
+        logger.info(f"[✅LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} > 5000.")
 
         # Score & Holder check
         if score_norm >= 5 or total_holders >= 20:
