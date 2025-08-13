@@ -57,6 +57,14 @@ async def _snipe_loop(uid: int, session):
             continue
 
         tokens = await fetch_new_birdeye_tokens()
+        if not tokens:
+            await asyncio.sleep(1)
+            continue
+        
+        # ✅ Sleep 5 seconds before running checks on these new listings
+        logger.debug(f"[{uid}] Sleeping 5s before processing {len(tokens)} new listings")
+        await asyncio.sleep(5)
+        
         for token in tokens:
             mint = token.get("address")
             name = token.get("symbol") or token.get("name", "Unnamed")
