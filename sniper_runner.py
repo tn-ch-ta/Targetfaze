@@ -11,11 +11,11 @@ logger = logging.getLogger("sniper_runner")
 active_tasks: dict[int, asyncio.Task] = {}
 seen_tokens: set[str] = set()
 
-BIRDEYE_API_KEY = "47e1f3a662ce4c3588a723142dbfe54e"
+BIRDEYE_API_KEY = "1a492d9200e24087a126ffc019fc6968"
 BIRDEYE_URL = "https://public-api.birdeye.so/defi/v2/tokens/new_listing"
 
 
-async def fetch_new_birdeye_tokens(limit: int = 5) -> list[dict]:
+async def fetch_new_birdeye_tokens(limit: int = 20) -> list[dict]:
     params = {
         "limit": limit,
         "meme_platform_enabled": "true",
