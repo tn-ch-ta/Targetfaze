@@ -24,76 +24,23 @@ SOLANA_RPC_URLS = [
     "https://solana.drpc.org"
 ]
 
-JUPITER_TOKEN_INFO_API = "https://lite-api.jup.ag/tokens/v1/token/{}"
-BIRDEYE_API = "https://public-api.birdeye.so/defi/v3/token/market-data"
-BIRDEYE_HEADERS = {
-    "accept": "application/json",
-    "x-chain": "solana",
-    "X-API-KEY": "38a6df7fd63941b3aaf7e25f9e38a2e8"
-}
 RUGCHECK_API = "https://api.rugcheck.xyz/v1/tokens/{}/report"
 
 # ── RPC Client Selector ───────────────────────────────────────────────────────
 def get_random_client() -> AsyncClient:
     return AsyncClient(random.choice(SOLANA_RPC_URLS))
 
-# ── Freeze Authority Check ────────────────────────────────────────────────────
-async def check_freeze_authority(mint_address: str) -> bool:
-    url = JUPITER_TOKEN_INFO_API.format(mint_address)
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=5) as resp:
-                data = await resp.json()
-
-        freeze_auth = data.get("freeze_authority")
-        if freeze_auth is None:
-            logger.info(f"[✅FREEZE CHECK] {mint_address} has no freeze authority.")
-            return True
-
-        logger.warning(f"[❌FREEZE CHECK] {mint_address} has freeze authority: {freeze_auth}")
-        return False
-
-    except Exception as e:
-        logger.error(f"[🚫FREEZE CHECK] Error checking freezeAuthority for {mint_address}: {e}")
-        return False
-
-# ── Liquidity + Market Cap Check ──────────────────────────────────────────────
-async def check_birdeye_liquidity_and_marketcap(mint_address: str) -> tuple | None:
-    params = {"address": mint_address, "ui_amount_mode": "scaled"}
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(BIRDEYE_API, headers=BIRDEYE_HEADERS, params=params, timeout=7) as resp:
-                data = await resp.json()
-
-        market_cap = float(data.get("data", {}).get("market_cap", 0))
-        liquidity = float(data.get("data", {}).get("liquidity", 0))
-
-        if liquidity > market_cap:
-            logger.warning(f"[❌BIRDEYE] {mint_address} liquidity {liquidity} > market cap {market_cap}.")
-            return None
-        if market_cap <= 2000:
-            logger.warning(f"[❌BIRDEYE] {mint_address} market cap ${market_cap:.2f} <= 2000.")
-            return None
-        if liquidity <= 500:
-            logger.warning(f"[❌BIRDEYE] {mint_address} liquidity ${liquidity:.2f} <= 500.")
-            return None
-
-        logger.info(f"[✅BIRDEYE] {mint_address} market cap ${market_cap:.2f}, liquidity ${liquidity:.2f}.")
-        return liquidity, market_cap
-
-    except Exception as e:
-        logger.error(f"[🚫BIRDEYE] Error checking liquidity/market cap for {mint_address}: {e}")
-        return None
-
-# ── Rugcheck Score Check ──────────────────────────────────────────────────────
-async def check_rugcheck_score(mint_address: str) -> tuple[bool, int]:
+# ── Combined RugCheck-based Token Validation ──────────────────────────────────
+async def passes_all_checks(mint_address: str) -> tuple | None:
     """
-    Check RugCheck score and total holders for a given token mint.
+    Check token against RugCheck for:
+    - freezeAuthority and mintAuthority == null
+    - totalStableLiquidity > 2000
+    - score_normalised < 5
+    - totalHolders > 7
 
     Returns:
-        (passed, total_holders)
-        - passed: True if score_normalised < 5 and total_holders > 7
-        - total_holders: int value from RugCheck API (or -1 if missing)
+        (liquidity, score_norm, total_holders) if all checks pass, else None.
     """
     url = RUGCHECK_API.format(mint_address)
     try:
@@ -101,43 +48,34 @@ async def check_rugcheck_score(mint_address: str) -> tuple[bool, int]:
             async with session.get(url, timeout=7) as resp:
                 data = await resp.json()
 
+        # Extract relevant fields from RugCheck response
+        freeze_auth = data.get("freezeAuthority")
+        mint_auth = data.get("mintAuthority")
+        total_liquidity = float(data.get("totalStableLiquidity", 0))
         score_norm = float(data.get("score_normalised", 999))
         total_holders = int(data.get("totalHolders", -1))
 
-        if score_norm < 5 and total_holders > 7:
-            logger.info(f"[✅RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — PASS")
-            return True
+        # Freeze & Mint Authority check
+        if freeze_auth is not None or mint_auth is not None:
+            logger.warning(f"[❌AUTH CHECK] {mint_address} freezeAuthority={freeze_auth}, mintAuthority={mint_auth}")
+            return None
+        logger.info(f"[✅AUTH CHECK] {mint_address} has no freeze or mint authority.")
 
-        logger.warning(f"[❌RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — FAIL")
-        return False
+        # Liquidity check
+        if total_liquidity <= 2000:
+            logger.warning(f"[❌LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} <= 2000.")
+            return None
+        logger.info(f"[✅LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} > 2000.")
+
+        # Score & Holder check
+        if score_norm >= 5 or total_holders <= 7:
+            logger.warning(f"[❌RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — FAIL")
+            return None
+        logger.info(f"[✅RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — PASS")
+
+        logger.info(f"[✅ALL CHECKS] {mint_address} passed all RugCheck-based checks.")
+        return total_liquidity, score_norm, total_holders
 
     except Exception as e:
-        logger.error(f"[🚫RUGCHECK] Error checking RugCheck for {mint_address}: {e}")
-        return False
-
-# ── Final Check Sequence ──────────────────────────────────────────────────────
-async def passes_all_checks(mint_address: str) -> tuple | None:
-    """
-    Returns (liquidity, market_cap) if all checks pass, else None.
-    """
-    try:
-        # 1. Freeze authority
-        if not await check_freeze_authority(mint_address):
-            return None
-
-        # 2. Liquidity & market cap
-        birdeye_result = await check_birdeye_liquidity_and_marketcap(mint_address)
-        if birdeye_result is None:
-            return None
-        liquidity, market_cap = birdeye_result
-
-        # 3. Rugcheck
-        if not await check_rugcheck_score(mint_address):
-            return None
-
-        logger.info(f"[✅ALL CHECKS] {mint_address} passed all checks.")
-        return liquidity, market_cap
-
-    except Exception as e:
-        logger.error(f"[🚫ALL CHECKS] Unexpected error for {mint_address}: {e}")
+        logger.error(f"[🚫ALL CHECKS] Error for {mint_address}: {e}")
         return None
