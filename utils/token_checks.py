@@ -54,6 +54,7 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
         total_liquidity = float(data.get("totalStableLiquidity", 0))
         score_norm = float(data.get("score_normalised", 999))
         total_holders = int(data.get("totalHolders", -1))
+        top_holders = data.get("topHolders", [])
 
         # Freeze & Mint Authority check
         if freeze_auth is not None or mint_auth is not None:
@@ -72,9 +73,20 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
             logger.warning(f"[❌RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — FAIL")
             return None
         logger.info(f"[✅RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — PASS")
+        
+        # Top holders check
+        if len(top_holders) >= 2:
+            second_pct = float(top_holders[1].get("pct", 100))
+            if second_pct >= 2.8:
+                logger.warning(f"[❌TOP HOLDERS] {mint_address} 2nd holder pct={second_pct:.4f}% >= 2.8% — FAIL")
+                return None
+            logger.info(f"[✅TOP HOLDERS] {mint_address} 2nd holder pct={second_pct:.4f}% < 2.8% — PASS")
+        else:
+            logger.warning(f"[❌TOP HOLDERS] {mint_address} has fewer than 2 holders — FAIL")
+            return None
 
         logger.info(f"[✅ALL CHECKS] {mint_address} passed all RugCheck-based checks.")
-        return total_liquidity, score_norm, total_holders
+        return total_liquidity, score_norm, total_holders, second_pct
 
     except Exception as e:
         logger.error(f"[🚫ALL CHECKS] Error for {mint_address}: {e}")
