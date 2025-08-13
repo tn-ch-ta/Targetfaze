@@ -93,7 +93,7 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 1: Fetch a Jupiter quote (“routePlan”) for swapping `amount` of input_mint → output_mint
 # ──────────────────────────────────────────────────────────────────────────────
-async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 1.0) -> dict:
+async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 1.5) -> dict:
     """
     Returns the full JSON response from Jupiter’s /quote endpoint.
     Must contain "routePlan" to be valid.
@@ -103,7 +103,7 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
         "inputMint":                 input_mint,
         "outputMint":                output_mint,
         "amount":                    amount,
-        "slippageBps":               int(slippage * 250),
+        "slippageBps":               int(slippage * 150),
         "onlyDirectRoutes":          "false",
         "restrictIntermediateTokens": "true",
     }
@@ -130,7 +130,7 @@ async def buy_token_real(
     private_key_b58: str,
     mint: str,
     sol_amount: float,
-    slippage_pct: float = 2.5,
+    slippage_pct: float = 1.5,
     priority_fee_sol: float = 0.00005,
 ) -> str:
     """
