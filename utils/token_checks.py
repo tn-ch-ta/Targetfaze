@@ -36,7 +36,7 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
     Check token against RugCheck for:
     - freezeAuthority and mintAuthority == null
     - totalStableLiquidity > 5000
-    - score_normalised < 5
+    - score_normalised < 17
     - totalHolders < 20
 
     Returns:
@@ -62,13 +62,13 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
         logger.info(f"[✅AUTH CHECK] {mint_address} has no freeze or mint authority.")
 
         # Liquidity check
-        if total_liquidity <= 5000:
+        if total_liquidity <= 3500:
             logger.warning(f"[❌LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} <= 5000.")
             return None
         logger.info(f"[✅LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} > 5000.")
 
         # Score & Holder check
-        if score_norm >= 5 or total_holders >= 20:
+        if score_norm >= 17 or total_holders >= 20:
             logger.warning(f"[❌RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — FAIL")
             return None
         logger.info(f"[✅RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — PASS")
