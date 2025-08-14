@@ -35,9 +35,9 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
     """
     Check token against RugCheck for:
     - freezeAuthority and mintAuthority == null
-    - totalStableLiquidity > 3500
+    - totalStableLiquidity > 3000
     - score_normalised < 17
-    - totalHolders < 40
+    - totalHolders < 25
 
     Returns:
         (liquidity, score_norm, total_holders) if all checks pass, else None.
@@ -63,13 +63,13 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
         logger.info(f"[✅AUTH CHECK] {mint_address} has no freeze or mint authority.")
 
         # Liquidity check
-        if total_liquidity <= 3500:
-            logger.warning(f"[❌LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} <= 3500.")
+        if total_liquidity <= 3000:
+            logger.warning(f"[❌LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} <= 3000.")
             return None
-        logger.info(f"[✅LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} > 3500.")
+        logger.info(f"[✅LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} > 3000.")
 
         # Score & Holder check
-        if score_norm >= 17 or total_holders >= 40:
+        if score_norm >= 17 or total_holders >= 25:
             logger.warning(f"[❌RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — FAIL")
             return None
         logger.info(f"[✅RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — PASS")
@@ -77,10 +77,10 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
         # Top holders check
         if len(top_holders) >= 2:
             second_pct = float(top_holders[1].get("pct", 100))
-            if second_pct >= 2.8:
-                logger.warning(f"[❌TOP HOLDERS] {mint_address} 2nd holder pct={second_pct:.4f}% >= 2.8% — FAIL")
+            if second_pct >= 3.0:
+                logger.warning(f"[❌TOP HOLDERS] {mint_address} 2nd holder pct={second_pct:.4f}% >= 3.0% — FAIL")
                 return None
-            logger.info(f"[✅TOP HOLDERS] {mint_address} 2nd holder pct={second_pct:.4f}% < 2.8% — PASS")
+            logger.info(f"[✅TOP HOLDERS] {mint_address} 2nd holder pct={second_pct:.4f}% < 3.0% — PASS")
         else:
             logger.warning(f"[❌TOP HOLDERS] {mint_address} has fewer than 2 holders — FAIL")
             return None
