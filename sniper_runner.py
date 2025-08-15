@@ -62,8 +62,8 @@ async def _snipe_loop(uid: int, session):
             continue
         
         # ✅ Sleep 5 seconds before running checks on these new listings
-        logger.info(f"[{uid}] Sleeping 300s before processing {len(tokens)} new listings")
-        await asyncio.sleep(300)
+        logger.info(f"[{uid}] Sleeping 120s before processing {len(tokens)} new listings")
+        await asyncio.sleep(120)
         
         for token in tokens:
             mint = token.get("address")
