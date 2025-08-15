@@ -37,7 +37,7 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
     - freezeAuthority and mintAuthority == null
     - totalStableLiquidity > 3000
     - score_normalised < 17
-    - totalHolders < 41
+    - totalHolders < 150
 
     Returns:
         (liquidity, score_norm, total_holders) if all checks pass, else None.
