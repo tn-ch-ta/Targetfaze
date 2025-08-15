@@ -115,7 +115,6 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
                 logger.warning(f"[❌DEX INFO] {mint_address} has no website or twitter listed — FAIL")
                 return None
 
-            logger.info(f"[✅DEX INFO] {mint_address} website={website_url}, twitter={twitter_url}")
 
             # All checks passed
             logger.info(f"[✅ALL CHECKS] {mint_address} passed RugCheck + DexScreener checks.")
