@@ -69,7 +69,7 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
         logger.info(f"[✅LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} > 3000.")
 
         # Score & Holder check
-        if score_norm >= 17 or total_holders >= 41:
+        if score_norm >= 17 or total_holders >= 150:
             logger.warning(f"[❌RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — FAIL")
             return None
         logger.info(f"[✅RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — PASS")
