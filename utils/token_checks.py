@@ -39,7 +39,7 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
     - totalStableLiquidity > 3000
     - score_normalised < 17
     - totalHolders > 22
-    - 2nd holder pct < 3.4%
+    - 2nd holder pct < 4.0%
     - Has website or Twitter listed on DexScreener
     """
     url = RUGCHECK_API.format(mint_address)
@@ -77,10 +77,10 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
             # Top holders check
             if len(top_holders) >= 2:
                 second_pct = float(top_holders[1].get("pct", 100))
-                if second_pct >= 3.4:
-                    logger.warning(f"[❌TOP HOLDERS] {mint_address} 2nd holder pct={second_pct:.4f}% >= 3.4% — FAIL")
+                if second_pct >= 4.0:
+                    logger.warning(f"[❌TOP HOLDERS] {mint_address} 2nd holder pct={second_pct:.4f}% >= 4.0% — FAIL")
                     return None
-                logger.info(f"[✅TOP HOLDERS] {mint_address} 2nd holder pct={second_pct:.4f}% < 3.4% — PASS")
+                logger.info(f"[✅TOP HOLDERS] {mint_address} 2nd holder pct={second_pct:.4f}% < 4.0% — PASS")
             else:
                 logger.warning(f"[❌TOP HOLDERS] {mint_address} has fewer than 2 holders — FAIL")
                 return None
