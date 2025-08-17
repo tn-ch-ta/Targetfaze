@@ -78,7 +78,7 @@ async def _snipe_loop(uid: int, session):
             if not check_result:
                 continue
 
-            liquidity, score_norm, total_holders, second_pct #website_url, twitter_url = check_result
+            liquidity, score_norm, total_holders, second_pct = check_result #website_url, twitter_url 
 
             from telegram_ui import send_notification  # avoid circular import
 
