@@ -86,39 +86,39 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
                 return None
 
             # 2️⃣ DexScreener request for website/social check
-            dex_url = DEXSCREENER_API.format(mint_address)
-            async with session.get(dex_url, timeout=7) as dex_resp:
-                dex_data = await dex_resp.json()
+            # dex_url = DEXSCREENER_API.format(mint_address)
+            # async with session.get(dex_url, timeout=7) as dex_resp:
+                # dex_data = await dex_resp.json()
 
-            has_website = False
-            has_twitter = False
-            website_url = None
-            twitter_url = None
+            #has_website = False
+            #has_twitter = False
+            #website_url = None
+            #twitter_url = None
 
-            if isinstance(dex_data, list) and len(dex_data) > 0:
-                info = dex_data[0].get("info", {})
-                websites = info.get("websites", [])
-                socials = info.get("socials", [])
+            #if isinstance(dex_data, list) and len(dex_data) > 0:
+                #info = dex_data[0].get("info", {})
+                #websites = info.get("websites", [])
+                #socials = info.get("socials", [])
 
-                if websites and isinstance(websites, list):
-                    website_url = websites[0].get("url")
-                    has_website = True
+                #if websites and isinstance(websites, list):
+                    #website_url = websites[0].get("url")
+                    #has_website = True
 
-                if socials and isinstance(socials, list):
-                    for social in socials:
-                        if social.get("type") == "twitter":
-                            twitter_url = social.get("url")
-                            has_twitter = True
-                            break
+                #if socials and isinstance(socials, list):
+                    #for social in socials:
+                        #if social.get("type") == "twitter":
+                            #twitter_url = social.get("url")
+                            #has_twitter = True
+                            #break
 
-            if not has_website and not has_twitter:
-                logger.warning(f"[❌DEX INFO] {mint_address} has no website or twitter listed — FAIL")
-                return None
+            #if not has_website and not has_twitter:
+                #logger.warning(f"[❌DEX INFO] {mint_address} has no website or twitter listed — FAIL")
+                #return None
 
 
             # All checks passed
             logger.info(f"[✅ALL CHECKS] {mint_address} passed RugCheck + DexScreener checks.")
-            return total_liquidity, score_norm, total_holders, second_pct, website_url, twitter_url
+            return total_liquidity, score_norm, total_holders, second_pct #website_url, twitter_url
 
     except Exception as e:
         logger.error(f"[🚫ALL CHECKS] Error for {mint_address}: {e}")
