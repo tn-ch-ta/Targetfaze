@@ -11,7 +11,7 @@ logger = logging.getLogger("sniper_runner")
 active_tasks: dict[int, asyncio.Task] = {}
 seen_tokens: set[str] = set()
 
-BIRDEYE_API_KEY = "374209ba50854ea7a9430a6cd770c086"
+BIRDEYE_API_KEY = "9cb9849ba72a4154bccd6e5291a51720"
 BIRDEYE_URL = "https://public-api.birdeye.so/defi/v2/tokens/new_listing"
 
 
