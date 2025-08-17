@@ -99,7 +99,7 @@ async def _snipe_loop(uid: int, session):
             logger.info(f"[{uid}] ✅ {name} ({mint}) passed checks → BUYING")
 
             try:
-                session.busy = True
+                #session.busy = True
                 txid = await buy_token_real(session.private_key, mint, session.sol_amount)
 
                 await send_notification(
@@ -115,8 +115,8 @@ async def _snipe_loop(uid: int, session):
                 logger.error(f"[{uid}] ❌ Buy failed {mint}: {e}")
                 await send_notification(uid, f"❌ Buy failed for {name} ({mint})\nError: {e}")
 
-            finally:
-                session.busy = False
+            #finally:
+                #session.busy = False
 
         await asyncio.sleep(1)
 
