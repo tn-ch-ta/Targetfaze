@@ -78,7 +78,7 @@ async def _snipe_loop(uid: int, session):
             if not check_result:
                 continue
 
-            liquidity, score_norm, total_holders, second_pct, website_url, twitter_url = check_result
+            liquidity, score_norm, total_holders, second_pct #website_url, twitter_url = check_result
 
             from telegram_ui import send_notification  # avoid circular import
 
@@ -92,8 +92,8 @@ async def _snipe_loop(uid: int, session):
                 f"*Rugcheck Score:* {score_norm:.2f}\n"
                 f"*Total Holders:* {total_holders}\n"
                 f"*Second Holder:* {second_pct:.4f}%\n"
-                f"*Twitter:* {twitter_url}\n"
-                f"*Website:* {website_url}"
+                #f"*Twitter:* {twitter_url}\n"
+                #f"*Website:* {website_url}"
             )
 
             logger.info(f"[{uid}] ✅ {name} ({mint}) passed checks → BUYING")
