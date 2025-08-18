@@ -38,7 +38,7 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
     - freezeAuthority and mintAuthority == null
     - totalStableLiquidity > 3000
     - score_normalised < 17
-    - totalHolders < 31
+    - totalHolders > 22
     - 2nd holder pct < 3.7%
     - Has website or Twitter listed on DexScreener
     """
@@ -69,7 +69,7 @@ async def passes_all_checks(mint_address: str) -> tuple | None:
             logger.info(f"[✅LIQUIDITY CHECK] {mint_address} liquidity={total_liquidity:.2f} > 3000.")
 
             # Score & Holder check
-            if score_norm >= 17 or total_holders >= 31:
+            if score_norm >= 17 or total_holders <= 22:
                 logger.warning(f"[❌RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — FAIL")
                 return None
             logger.info(f"[✅RUGCHECK] {mint_address} score={score_norm:.2f}, holders={total_holders} — PASS")
