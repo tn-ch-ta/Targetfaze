@@ -11,7 +11,7 @@ logger = logging.getLogger("sniper_runner")
 active_tasks: dict[int, asyncio.Task] = {}
 seen_tokens: set[str] = set()
 
-BIRDEYE_API_KEY = "9cb9849ba72a4154bccd6e5291a51720"
+BIRDEYE_API_KEY = "127bedcc6f9f44f09316d9e4d7742d82"
 BIRDEYE_URL = "https://public-api.birdeye.so/defi/v2/tokens/new_listing"
 
 
@@ -62,8 +62,8 @@ async def _snipe_loop(uid: int, session):
             continue
         
         # ✅ Sleep 60s seconds before running checks on these new listings
-        logger.info(f"[{uid}] Sleeping 60s before processing {len(tokens)} new listings")
-        await asyncio.sleep(60)
+        logger.info(f"[{uid}] Sleeping 80s before processing {len(tokens)} new listings")
+        await asyncio.sleep(80)
         
         for token in tokens:
             mint = token.get("address")
