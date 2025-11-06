@@ -1,8 +1,8 @@
+# Targetfaze — Telegram-Powered Solana Pump.fun Sniper
+
 ![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-
-
-# Targetfaze — Telegram-Powered Solana Pump.fun Sniper
+![Status](https://img.shields.io/badge/status-Active-success)
 
 Targetfaze is a fully automated memecoin sniper bot for the Solana network. It detects **new tokens** listed on [Pump.fun](https://pump.fun), runs 5 **real on-chain safety checks**, and **executes real buy/sell trades** via [Jupiter Aggregator](https://jup.ag) using Solana's `solders` for transaction signing.
 
