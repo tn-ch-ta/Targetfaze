@@ -18,8 +18,8 @@ logger = logging.getLogger("token_checks")
 # ── Constants ─────────────────────────────────────────────────────────────────
 SOLANA_RPC_URLS = [
     "https://api.mainnet-beta.solana.com",
-    "https://solana-mainnet.g.alchemy.com/v2/NHAveomHS7q-QGj2ddOa86_QzVi9QzeY",
-    "https://solana-mainnet.g.alchemy.com/v2/D6p4-dGHuCfO42nBFTPzJdpWBN9vUlsz",
+    "https://solana-mainnet.g.alchemy.com/v2/...Y",
+    "https://solana-mainnet.g.alchemy.com/v2/...z",
     "https://solana-rpc.publicnode.com",
     "https://solana.drpc.org"
 ]
