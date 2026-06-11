@@ -1,5 +1,3 @@
-# utils/real_swap.py
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Monkey-patch httpx.AsyncClient to swallow the `proxy` kwarg so solana-py works
 import httpx
