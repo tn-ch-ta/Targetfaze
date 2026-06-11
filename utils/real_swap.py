@@ -37,7 +37,6 @@ RPC_URL            = random.choice(SOLANA_RPC_URLS)
 SOL_MINT           = "So11111111111111111111111111111111111111112"
 JUPITER_QUOTE_API  = "https://lite-api.jup.ag/swap/v1/quote"
 
-# Create ONE shared AsyncClient on import — with randomized choice
 client: AsyncClient = AsyncClient(random.choice(SOLANA_RPC_URLS))
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -64,9 +63,7 @@ def log_bool_fields(obj, path="root"):
             log_bool_fields(v, f"{path}[{i}]")
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Convert a Base58-encoded private key into a Solana-py Keypair
-# ──────────────────────────────────────────────────────────────────────────────
+
 def get_keypair_from_base58(private_key: str) -> Keypair:
     """
     Expects a Base58-encoded 64-byte (secret key) string.
@@ -88,9 +85,6 @@ def get_keypair_from_base58(private_key: str) -> Keypair:
     return keypair
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Step 1: Fetch a Jupiter quote (“routePlan”) for swapping `amount` of input_mint → output_mint
-# ──────────────────────────────────────────────────────────────────────────────
 async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippage: float = 2.5) -> dict:
     """
     Returns the full JSON response from Jupiter’s /quote endpoint.
@@ -121,9 +115,6 @@ async def get_swap_route(input_mint: str, output_mint: str, amount: int, slippag
     return json_data
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# High-level swap helpers
-# ──────────────────────────────────────────────────────────────────────────────
 async def buy_token_real(
     private_key_b58: str,
     mint: str,
@@ -139,15 +130,12 @@ async def buy_token_real(
     payer = str(kp.pubkey())
     lamports = int(sol_amount * 1e9)
 
-    # 1) Get Jupiter quote (for logging & sanity check)
     quote = await get_swap_route(SOL_MINT, mint, lamports, slippage_pct)
     out_amt = int(quote["outAmount"])
     logger.info(f"[QUOTE] {sol_amount} SOL → {out_amt/1e9:.9f} {mint} (slippage {slippage_pct}%)")
 
-    # 2) Initialize SolanaTracker on your chosen RPC
     tracker = SolanaTracker(kp, RPC_URL)
 
-    # 3) Build swap instructions via SolanaTracker
     swap_resp = await tracker.get_swap_instructions(
         from_token=SOL_MINT,
         to_token=mint,
@@ -157,7 +145,6 @@ async def buy_token_real(
         priority_fee=priority_fee_sol,
     )
 
-    # 4) Customize send & confirm behavior
     options = {
         "send_options": {
             "skip_preflight": True,
@@ -172,7 +159,6 @@ async def buy_token_real(
         "skip_confirmation_check":    False,
     }
 
-    # 5) Perform the swap
     start = time.time()
     try:
         txid = await tracker.perform_swap(swap_resp, options=options)
